@@ -21,7 +21,6 @@ import path from 'node:path';
 import {
   STATUSES,
   PRIORITIES,
-  createTask,
   patchList,
   setStatus,
   setFocus,
@@ -178,7 +177,7 @@ function taskListTool() {
     description: 'Read this session\'s task list: a tree with five states (todo / doing / needs review / done / '
       + 'abandoned), '
       + 'priority, notes, blocked and focused markers. Parent rows report a derived state from their subtasks. '
-      + 'Use it before planning work and after finishing a step; write changes with task_write.',
+      + 'Use it before planning work and after finishing a step; write changes with task_edit.',
     // `ctx.tools.register` takes a finished JSON Schema; only `defineTool`
     // compiles a parameter spec, and a plain-JS bundle cannot import it. A tool
     // also needs at least one property: `{}` becomes `type: null` and the model
@@ -207,13 +206,15 @@ function taskListTool() {
 function taskWriteTool() {
   return {
     name: 'task_write',
-    description: 'Replace the whole task list of this session with `tasks`. This is the write path for the task '
+    description: 'Replace the whole list of this session with `tasks`; for day-to-day changes use task_edit. '
+      + 'This is the write path for the task '
       + 'list shown in the panel beside the conversation; prefer it over todo_write, which is still registered but '
       + 'is being retired. Every item needs an `id`: reuse the id of an '
       + 'existing task to update it, and invent a short stable id for a new one. An item missing from the '
       + 'submission is treated as withdrawn (except tasks the user created, which survive). `status` uses '
       + 'todo / in_progress / review / completed; mark a stuck task with `blocked: true` and write the reason '
-      + 'in `notes` rather than inventing a new status. '
+      + 'in `notes` rather than inventing a new status, and `paused: true` for work parked until a decision '
+      + 'arrives (the task keeps its state). '
       + 'Structure: a top-level task is a phase or a big deliverable, never a single step — when more than 3 '
       + 'top-level tasks seem needed, group them under phase parents first. Every top-level task needs at least '
       + 'one subtask, and one subtask equals one action that can be accepted or rejected on its own. Two levels '
@@ -242,6 +243,11 @@ function taskWriteTool() {
               parentId: { type: 'string', description: 'Id of the parent task, for subtasks.' },
               order: { type: 'number', description: 'Sibling order; lower comes first.' },
               blocked: { type: 'boolean', description: 'Waiting on something outside the list.' },
+              paused: {
+                type: 'boolean',
+                description: 'Run/pause switch: the task keeps its state but is marked as not to be advanced. '
+                  + 'Use it for work parked waiting on a decision. Omit to keep the user\'s own choice.',
+              },
             },
             required: ['id', 'title', 'status'],
           },
@@ -259,6 +265,96 @@ function taskWriteTool() {
       const result = mergeAgent(state.tasks, submission, { now: Date.now() });
       writeTaskState(sessionId, result.tasks);
       return Promise.resolve({ text: describeMerge(result) });
+    },
+  };
+}
+
+function taskEditTool() {
+  return {
+    name: 'task_edit',
+    description: 'Change one task in this session\'s list in place and return the whole list. Every other task '
+      + 'keeps its id, state and position, so this is the normal write path; use task_write only to replace the '
+      + 'entire list.',
+    parameters: {
+      type: 'object',
+      properties: {
+        op: {
+          type: 'string',
+          enum: ['create', 'update', 'status', 'focus', 'move', 'pause', 'block', 'delete'],
+          description: 'create adds a task from `input`; update applies `patch` to `id`; status sets `status` on '
+            + '`id`; focus pins `id` (omit `id` to clear the pin); move reorders `id` with `beforeId` or '
+            + '`direction`; pause sets `paused`; block sets `blocked`; delete removes `id` and its descendants.',
+        },
+        id: {
+          type: 'string',
+          description: 'Target task id; required for every op except create.',
+        },
+        input: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            title: { type: 'string', description: 'Short task name: 7 Chinese characters or fewer; details go in notes.' },
+            parentId: { type: 'string', description: 'Parent task id; omit for a top-level task.' },
+            priority: { type: 'string', enum: [...PRIORITIES], description: 'high | medium | low (default medium).' },
+            notes: { type: 'string', description: 'Details, or the reason a task is blocked.' },
+            order: { type: 'number', description: 'Sibling order; lower comes first (default: after its siblings).' },
+          },
+          required: ['title'],
+          description: 'create only: the new task. Its id is assigned and returned in the list.',
+        },
+        patch: {
+          type: 'object',
+          additionalProperties: false,
+          properties: {
+            title: { type: 'string', description: 'Short task name: 7 Chinese characters or fewer.' },
+            notes: { type: 'string', description: 'Details, or the reason a task is blocked.' },
+            priority: { type: 'string', enum: [...PRIORITIES] },
+            status: { type: 'string', enum: [...STATUSES] },
+            order: { type: 'number' },
+            parentId: { type: 'string', description: 'Move the task under another parent (empty string = top level).' },
+            blocked: { type: 'boolean' },
+            paused: { type: 'boolean' },
+          },
+          description: 'update only: fields to change on `id`; omitted fields keep their value.',
+        },
+        status: {
+          type: 'string',
+          enum: [...STATUSES],
+          description: 'status only: pending | in_progress | review | completed | abandoned.',
+        },
+        beforeId: {
+          type: ['string', 'null'],
+          description: 'move only: place `id` before this sibling; null places it last among its siblings.',
+        },
+        direction: {
+          type: 'string',
+          enum: ['up', 'down'],
+          description: 'move only when `beforeId` is omitted: shift `id` one sibling up or down.',
+        },
+        paused: {
+          type: 'boolean',
+          description: 'pause only: true parks unfinished work without changing its state; false resumes it.',
+        },
+        blocked: {
+          type: 'boolean',
+          description: 'block only: true marks the task (and by default its unfinished children) blocked.',
+        },
+        scope: {
+          type: 'string',
+          enum: ['all', 'subtree', 'task'],
+          description: 'pause: all (default) pauses the whole list, subtree pauses the direct children of `id`. '
+            + 'block: subtree (default) covers the unfinished children, task blocks only `id`.',
+        },
+      },
+      required: ['op'],
+    },
+    output: { schema: outputShape, render: renderText },
+    execute(args, exec) {
+      const agent = exec.agent;
+      if (!agent) throw new Error('task_edit requires an owning agent session');
+      const sessionId = String(agent.id);
+      const result = applyOp(sessionId, { ...args, sessionId, origin: 'agent' });
+      return Promise.resolve({ text: formatTaskList(deriveStatus(result.tasks), false) });
     },
   };
 }
@@ -332,7 +428,9 @@ function applyOp(sessionId, body) {
         sessionId,
         parentId,
         order: nextOrder(tasks, parentId),
-        origin: 'user',
+        // The agent's own tools pass `origin: 'agent'` so mergeAgent may later
+        // withdraw what they created; a panel create stays a user task.
+        origin: body.origin === 'agent' ? 'agent' : 'user',
       }, { now });
       break;
     }
@@ -522,6 +620,7 @@ function suppressTodoWrite(ctx) {
 export function apply(ctx) {
   ctx.effect(() => ctx.tools.register(taskListTool()), 'task-list: tool task_list');
   ctx.effect(() => ctx.tools.register(taskWriteTool()), 'task-list: tool task_write');
+  ctx.effect(() => ctx.tools.register(taskEditTool()), 'task-list: tool task_edit');
   suppressTodoWrite(ctx);
   mountRoutes(ctx);
   watchForks(ctx);

@@ -278,6 +278,9 @@ window.__ModuleLoader__.load({
       // look like it vanished. A click opens the body.
       '.dstl-docks{flex:none;display:flex;flex-direction:column;min-height:0}',
       '.dstl-complete-dock{flex:none;min-height:0;max-height:220px;overflow:hidden;padding:2px 6px 6px;opacity:1;transform:none;border-top:1px solid var(--dsw-alias-border-l1,#e3e0da);background:var(--dsw-alias-bg-layer-1,#ffffff);transition:max-height .26s cubic-bezier(.2,.8,.2,1),padding .26s ease,opacity .2s ease,transform .26s cubic-bezier(.2,.8,.2,1),border-color .2s ease}',
+      // Folded away until the pointer reaches the bottom docks (or the user pins
+      // it open): the title row is part of the fold, not always-on furniture.
+      '.dstl-complete-dock.dstl-complete-hidden{max-height:0;padding-top:0;padding-bottom:0;opacity:0;overflow:hidden;border-top-color:transparent;transform:translateY(6px);pointer-events:none}',
       '.dstl-complete-dock.dstl-complete-open{max-height:50vh;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--dsw-alias-border-l2,#d6d0c6) transparent}',
       '.dstl-complete-body{padding:0}',
       '.dstl-row[data-drag="true"]{cursor:grab}',
@@ -538,10 +541,11 @@ window.__ModuleLoader__.load({
     }
 
     // A parent's status is derived from its children: none done -> pending, some
-    // done -> in progress, all done -> completed. Abandoned children are
-    // skipped: writing a subtask off neither completes the parent nor holds it
-    // open. The stored status is ignored while the task has live children, so a
-    // parent can never disagree with its own subtree.
+    // done -> in progress, all done -> completed, all waiting for review ->
+    // review. Abandoned children are skipped: writing a subtask off neither
+    // completes the parent nor holds it open. The stored status is ignored
+    // while the task has live children, so a parent can never disagree with its
+    // own subtree.
     function deriveStatus(task) {
       const children = (task.children || []).filter((child) => child.status !== 'abandoned');
       if (children.length === 0) return task.status;
@@ -549,6 +553,9 @@ window.__ModuleLoader__.load({
       if (total === 0) return task.status;
       const done = countDone(children);
       if (done >= total) return 'completed';
+      // Every child waiting for review means the phase itself is waiting; a
+      // review child mixed with pending ones is still running work.
+      if (children.every((child) => deriveStatus(child) === 'review')) return 'review';
       // No done child but one already moving still means the parent is running.
       const active = children.some((child) => deriveStatus(child) !== 'pending');
       if (done === 0 && !active) return 'pending';
@@ -2983,7 +2990,8 @@ window.__ModuleLoader__.load({
       // hint. It sits above the abandoned dock and only slides out when the
       // pointer is inside the bottom dock area; a click pins it open.
       const completedDock = h('div', {
-        className: 'dstl-complete-dock' + (completedOpen ? ' dstl-complete-open' : ''),
+        className: 'dstl-complete-dock' + (completedOpen ? ' dstl-complete-open' : '')
+          + (completedOpen || completedHover ? '' : ' dstl-complete-hidden'),
       },
         h('div', {
           className: 'dstl-row dstl-row-head dstl-abandoned-head',

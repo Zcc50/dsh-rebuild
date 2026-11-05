@@ -249,7 +249,10 @@ function applyIncoming(current, raw, incomingAt) {
     order: Number.isFinite(raw.order) ? raw.order : current.order,
     blocked: raw.blocked === undefined ? current.blocked : raw.blocked === true,
     focused: current.focused,
-    paused: current.paused,
+    // `paused` is the run/pause switch and normally the user's choice, so an
+    // omitted field keeps it. An explicit value from the agent is honoured:
+    // "park this phase" is exactly the kind of state a plan needs to record.
+    paused: raw.paused === undefined ? current.paused : raw.paused === true,
     version: current.version + 1,
     updatedAt: Math.max(incomingAt, current.updatedAt),
     externalUpdateAt: null,
@@ -520,6 +523,9 @@ export function assertValidTree(tasks) {
 
 function deriveFromChildren(statuses) {
   if (statuses.every((status) => status === 'completed')) return 'completed';
+  // A phase whose every child is waiting for review is itself waiting for
+  // review. Mixed review + pending stays `in_progress`: work is still moving.
+  if (statuses.every((status) => status === 'review')) return 'review';
   if (statuses.every((status) => status === 'pending')) return 'pending';
   return 'in_progress';
 }

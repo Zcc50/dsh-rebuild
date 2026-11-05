@@ -1,47 +1,19 @@
-# DSH 重修整合包（dsh-rebuild）
+# DSH 重修整合包
 
-> 一个仓库，两条入口：
-> - **根目录** = 工作区美化插件本体（`dsh-workspace-frontend` 0.1.1），可以从插件市场一键安装 / 更新；
-> - **`pack/`** = 整套 DSH 环境安装器（任务列表 + 编码兼容 + LSP/审查 + 视觉 + 白皮书），按 `pack/安装指令.md` 让 DSH 里的 agent 逐项用问答卡片确认安装。
+DSH（DeepSeek Harness）的自用整合包仓库，四部分：
 
-## 入口一：只要工作区美化（市场一键装）
+| 目录 | 内容 | 安装 |
+|---|---|---|
+| 根目录 | 工作区美化插件 `dsh-workspace-frontend` 0.1.1 | 插件市场搜「DSH 工作区前端重建」，或 `dsh plugin --profile <profile> add Zcc50/dsh-rebuild` |
+| `pack/` | 整套环境安装器 **V3（2026-11-05）**：工作区美化 / 任务列表 0.3.14 / 待办列表 0.1.0 / 视觉 / 心理档案框架 / 编码 / LSP / 皮肤 / 白皮书 | 解压后按 `pack/安装指令.md`，或 `pack/install.ps1` |
+| `task-list/` | 任务列表插件 `dsh-task-list` **0.3.14** | 市场搜「DSH 任务列表」，或 `dsh plugin --profile <profile> add Zcc50/dsh-rebuild#task-list` |
+| `todo-list/` | 待办列表插件 `dsh-todo-list` **0.1.0** | 市场搜「DSH 待办列表」，或 `dsh plugin --profile <profile> add Zcc50/dsh-rebuild#todo-list` |
 
-在市场里搜「DSH 重修整合包」，或直接对本仓库执行：
+## 安装器（pack/）
 
-```
-plugin_manager -> install_bundle -> target: <本仓库目录>
-```
-
-安装后侧栏变成「工作区 → 分组 → 会话」，支持拖拽归组、上下文用量环、20%/40% 上下文提醒、左右侧栏调宽。
-
-## 入口二：整套环境（pack/ 安装器）
-
-1. 下载本仓库（`Code → Download ZIP`）。
-2. 解压后进入 `pack/`。
-3. 在 DSH 任意会话里发：
-
-   > 按 `<解压目录>/pack/安装指令.md` 安装重修整合包。
-
-agent 会逐项出问答卡片（工作区美化 / 任务列表 / 编码 / LSP / 视觉 / 皮肤 / 白皮书），你确认或修改后一条命令装完。
-
-`pack/` 里包含：
-
-| 项目 | 内容 |
-|---|---|
-| `payload/plugins/` | 工作区美化 0.1.1、任务列表 0.3.11、视觉 0.1.0 源码 |
-| `payload/vendor/` | 编码插件、LSP 动作、审查技能、TypeScript 5.9.3、语言服务器、皮肤（离线 tgz） |
-| `payload/profile/` | 按 id 合并进 `cordis.patch.yml` 的配置片段 |
-| `payload/AGENTS.md` | 操作白皮书 2026-10-31 |
-| `install.ps1` | 逐项安装脚本（`-Include` / `-AgentsPolicy` / `-DryRun`） |
-| `README-安装说明.md` | 人类可读的安装说明与验证清单 |
-
-`pack/SHA256SUMS.txt` 是相对 `pack/` 目录的哈希清单，校验时进入 `pack/` 再跑。
+见 `pack/README-安装说明.md`。V3 的非自研插件（编码 / LSP / 皮肤 / 桌宠 / 人设 / 中文思考 / 市场 / 查找）只给包名与 npm 链接，安装时联网 `pnpm add`。
 
 ## 版本
 
-- **0.1.1**（2026-10-31）：整合包化。根目录仍是可市场安装的工作区美化插件；新增 `pack/` 全量安装器（任务列表 0.3.11、编码、LSP/审查、视觉、白皮书）。
-- 0.1.0（2026-10-29）：工作区美化首次发布。
-
-## 许可
-
-MIT
+- 2026-11-05：V3——任务列表 0.3.14、待办列表 0.1.0 入包；新增心理档案框架（选装，用户名问答替换）；非自研插件改为链接 + 问答、不再打包 tgz。
+- 2026-10-31：V2——工作区美化上架市场；pack 首次成包。

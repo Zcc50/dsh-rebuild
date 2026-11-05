@@ -561,6 +561,42 @@ test('deriveStatus reports a parent from its children only', () => {
   assert.equal(allDone.find((task) => task.id === 'p').version, parent.version);
 });
 
+test('deriveStatus reports review when every child is waiting for review', () => {
+  const options = makeOptions();
+  const parent = createTask({ id: 'p', title: 'p' }, options);
+  const one = createTask({ id: 'a', title: 'a', parentId: 'p' }, options);
+  const two = createTask({ id: 'b', title: 'b', parentId: 'p' }, options);
+
+  const allReview = deriveStatus([
+    parent,
+    patchTask(one, { status: 'review' }, { now: NOW + 1 }),
+    patchTask(two, { status: 'review' }, { now: NOW + 1 }),
+  ]);
+  assert.equal(allReview.find((task) => task.id === 'p').status, 'review');
+
+  // One child still pending keeps the parent running, not waiting for review.
+  const mixed = deriveStatus([
+    parent,
+    patchTask(one, { status: 'review' }, { now: NOW + 1 }),
+    two,
+  ]);
+  assert.equal(mixed.find((task) => task.id === 'p').status, 'in_progress');
+
+  // A review child next to a completed one is running work, not waiting.
+  const partlyDone = deriveStatus([
+    parent,
+    patchTask(one, { status: 'review' }, { now: NOW + 1 }),
+    patchTask(two, { status: 'completed' }, { now: NOW + 1 }),
+  ]);
+  assert.equal(partlyDone.find((task) => task.id === 'p').status, 'in_progress');
+});
+
+test('deriveStatus keeps a childless review task at its own state', () => {
+  const options = makeOptions();
+  const task = createTask({ id: 'solo', title: 'solo', status: 'review' }, options);
+  assert.equal(deriveStatus([task])[0].status, 'review');
+});
+
 test('deriveStatus resolves nested parents from the leaves up', () => {
   const options = makeOptions();
   const root = createTask({ id: 'r', title: 'r' }, options);

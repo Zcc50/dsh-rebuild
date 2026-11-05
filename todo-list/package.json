@@ -1,0 +1,51 @@
+{
+  "name": "dsh-todo-list",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "DeepSeek Harness 待办列表：右侧栏常驻标签，分类 / 分组 / 五态 / 备份导出，数据按会话落盘。",
+  "license": "MIT",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "lib/*.js",
+    "locale/*.json",
+    "icon.svg"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Zcc50/dsh-rebuild.git",
+    "directory": "todo-list"
+  },
+  "homepage": "https://github.com/Zcc50/dsh-rebuild/tree/main/todo-list",
+  "bugs": {
+    "url": "https://github.com/Zcc50/dsh-rebuild/issues"
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh-plugin",
+    "todo-list",
+    "待办",
+    "任务"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-sidebar-right"
+      ]
+    }
+  }
+}

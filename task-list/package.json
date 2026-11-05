@@ -1,0 +1,51 @@
+{
+  "name": "dsh-task-list",
+  "version": "0.3.14",
+  "type": "module",
+  "description": "DeepSeek Harness 任务列表：对话左侧常驻任务面板（五态 + 父子折叠 + 完成区/废弃区 dock），与 agent 共享同一份按会话落盘的列表。",
+  "license": "MIT",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "lib/*.js",
+    "locale/*.json",
+    "icon.svg"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Zcc50/dsh-rebuild.git",
+    "directory": "task-list"
+  },
+  "homepage": "https://github.com/Zcc50/dsh-rebuild/tree/main/task-list",
+  "bugs": {
+    "url": "https://github.com/Zcc50/dsh-rebuild/issues"
+  },
+  "keywords": [
+    "deepseek-harness",
+    "dsh-plugin",
+    "task-list",
+    "todo",
+    "task",
+    "父子任务"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-conversation"
+      ]
+    }
+  }
+}

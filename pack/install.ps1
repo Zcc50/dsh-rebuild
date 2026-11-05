@@ -1,19 +1,25 @@
 ﻿<#
 .SYNOPSIS
-  DSH 重修整合包 v2 · 逐项安装（Windows PowerShell 5.1 兼容）
+  DSH 重修整合包 V3 · 逐项安装（Windows PowerShell 5.1 兼容）
 .DESCRIPTION
   按 -Include 指定的项目逐项安装；每个项目都能单独装/不装。
-  项目：workspace（工作区美化）/ tasklist（任务列表，含父子结构 + 完成区）/
-        encoding（编码 P1）/ lsp（LSP + 审查 P2）/ vision（视觉）/ skin（皮肤）/ agents（白皮书）
-  默认（不传 -Include）= workspace, tasklist, encoding, lsp, vision（不含皮肤与白皮书）。
+  自研插件（包内带源码）：workspace / tasklist / todolist / vision
+  文件类选装：psych（心理档案框架，装到 -PsychDest，用户名用 -UserName 替换）
+  外置插件（不打包，联网 pnpm add）：encoding / lsp / skin / pet / persona / thinking / market / find
+  白皮书：agents
+  默认（不传 -Include）= workspace, tasklist, todolist, psych, encoding, lsp, vision。
 .PARAMETER Include
   逗号分隔的项目列表，例如 "workspace,tasklist,encoding,lsp"。
 .PARAMETER AgentsPolicy
   keep（默认，不动）/ overwrite（备份后覆盖）/ append（保留旧文件，只补缺失章节）。
+.PARAMETER PsychDest
+  心理档案安装目录；不传时默认 <我的文档>\心理档案。目录已存在则跳过（避免覆盖已有记录）。
+.PARAMETER UserName
+  心理档案中 {{USERNAME}} 的替换值；不传时用当前 Windows 用户名。
 .EXAMPLE
-  powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -Include "workspace,tasklist,encoding"
+  powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -Include "workspace,tasklist,encoding" -DryRun
 .EXAMPLE
-  powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -Include "skin,agents" -AgentsPolicy overwrite
+  powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -Include "psych,agents" -PsychDest "D:\档案\心理档案" -UserName "李明" -AgentsPolicy append
 #>
 [CmdletBinding()]
 param(
@@ -22,6 +28,8 @@ param(
   [string[]]$Include = @(),
   [ValidateSet('keep', 'overwrite', 'append')]
   [string]$AgentsPolicy = 'keep',
+  [string]$PsychDest = '',
+  [string]$UserName = '',
   [switch]$DryRun
 )
 
@@ -38,18 +46,24 @@ $Script:Warnings = New-Object System.Collections.ArrayList
 $LocalPlugins = @(
   @{ Item = 'workspace'; Name = '@local/dsh-workspace-frontend'; Dir = 'dsh-workspace-frontend'; Label = '工作区美化' },
   @{ Item = 'tasklist'; Name = '@local/dsh-task-list'; Dir = 'dsh-task-list'; Label = '任务列表（含父子结构/完成区）' },
+  @{ Item = 'todolist'; Name = '@local/dsh-todo-list'; Dir = 'dsh-todo-list'; Label = '抱怨先生的待办列表' },
   @{ Item = 'vision'; Name = 'dsh-vision'; Dir = 'dsh-vision'; Label = '视觉（识图/截图）' }
 )
-$VendorPkgs = @(
-  @{ Item = 'encoding'; Name = 'dsh-fs-encoding'; Tgz = 'dsh-fs-encoding-1.5.2.tgz'; Label = '编码插件 P1' },
-  @{ Item = 'lsp'; Name = 'dsh-lsp-actions'; Tgz = 'dsh-lsp-actions-0.5.17.tgz'; Label = 'LSP 动作 P2' },
-  @{ Item = 'lsp'; Name = 'brooks-lint'; Tgz = 'brooks-lint-1.9.1.tgz'; Label = '代码审查 P2' },
-  @{ Item = 'lsp'; Name = 'typescript'; Tgz = 'typescript-5.9.3.tgz'; Label = 'TypeScript 5.9.3（LSP 运行时）' },
-  @{ Item = 'lsp'; Name = 'typescript-language-server'; Tgz = 'typescript-language-server-6.0.2.tgz'; Label = 'TS 语言服务器' },
-  @{ Item = 'skin'; Name = 'dsh-claude-style'; Tgz = 'dsh-claude-style-0.19.5.tgz'; Label = '皮肤' }
+$ExternalPkgs = @(
+  @{ Item = 'encoding'; Name = 'dsh-fs-encoding'; Ver = '1.5.2'; Bundles = $true; Label = '编码插件' },
+  @{ Item = 'lsp'; Name = 'dsh-lsp-actions'; Ver = '0.5.17'; Bundles = $true; Label = 'LSP 动作' },
+  @{ Item = 'lsp'; Name = 'brooks-lint'; Ver = '1.9.1'; Bundles = $true; Label = '代码审查技能' },
+  @{ Item = 'lsp'; Name = 'typescript'; Ver = '5.9.3'; Bundles = $false; Label = 'TypeScript（LSP 运行时）' },
+  @{ Item = 'lsp'; Name = 'typescript-language-server'; Ver = '6.0.2'; Bundles = $false; Label = 'TS 语言服务器' },
+  @{ Item = 'skin'; Name = 'dsh-claude-style'; Ver = '0.19.5'; Bundles = $true; Label = '皮肤' },
+  @{ Item = 'pet'; Name = 'dsh-pet'; Ver = '0.3.8'; Bundles = $true; Label = '桌宠' },
+  @{ Item = 'persona'; Name = 'whale-persona'; Ver = '0.17.7'; Bundles = $true; Label = '人设' },
+  @{ Item = 'thinking'; Name = '@max-null/dsh-chinese-thinking'; Ver = '0.3.1'; Bundles = $true; Label = '中文思考' },
+  @{ Item = 'market'; Name = 'dshmarket'; Ver = '1.73.1'; Bundles = $true; Label = '插件市场' },
+  @{ Item = 'find'; Name = 'dsh-find-plugins'; Ver = '0.3.0'; Bundles = $true; Label = '查找插件' }
 )
-$AllItems = @('workspace', 'tasklist', 'encoding', 'lsp', 'vision', 'skin', 'agents')
-$DefaultItems = @('workspace', 'tasklist', 'encoding', 'lsp', 'vision')
+$AllItems = @('workspace', 'tasklist', 'todolist', 'psych', 'encoding', 'lsp', 'vision', 'skin', 'pet', 'persona', 'thinking', 'market', 'find', 'agents')
+$DefaultItems = @('workspace', 'tasklist', 'todolist', 'psych', 'encoding', 'lsp', 'vision')
 
 function Write-Step([string]$t) { Write-Host ''; Write-Host "== $t" -ForegroundColor Cyan }
 function Write-Info([string]$t) { Write-Host "   $t" }
@@ -66,7 +80,7 @@ function Set-JsonFile([string]$Path, $Object) {
 }
 function Copy-Tree([string]$Source, [string]$Dest) {
   New-Item -ItemType Directory -Force -Path $Dest | Out-Null
-  $roboArgs = @($Source, $Dest, '/MIR', '/NFL', '/NDL', '/NJH', '/NJS', '/NP', '/R:1', '/W:1')
+  $roboArgs = @($Source, $Dest, '/E', '/NFL', '/NDL', '/NJH', '/NJS', '/NP', '/R:1', '/W:1')
   & robocopy @roboArgs | Out-Null
   if ($LASTEXITCODE -ge 8) { throw "robocopy failed ($LASTEXITCODE): $Source -> $Dest" }
 }
@@ -182,7 +196,7 @@ Write-Host ''
 Write-Host ("本次安装项目: {0}" -f ($items -join ', ')) -ForegroundColor Green
 
 # ================= 1. profile =================
-Write-Step '1/9 解析 profile'
+Write-Step '1/10 解析 profile'
 $profilesRoot = Join-Path $Script:DshHome 'profiles'
 if (-not (Test-Path $profilesRoot)) { throw "未找到 $profilesRoot —— 目标机需要先安装并启动一次 DSH。" }
 if (-not $ProfilePath) {
@@ -199,7 +213,7 @@ if (-not $PluginsDir) { $PluginsDir = Join-Path $Script:DshHome 'plugins' }
 if (-not $DryRun) { New-Item -ItemType Directory -Force -Path $PluginsDir | Out-Null }
 
 # ================= 2. runtime =================
-Write-Step '2/9 探测 DSH runtime 的 node / pnpm'
+Write-Step '2/10 探测 DSH runtime 的 node / pnpm'
 $Script:nodeExe = $null; $Script:pnpmCjs = $null
 foreach ($rt in (Get-ChildItem (Join-Path $Script:DshHome 'dsh-runtimes') -Directory -ErrorAction SilentlyContinue)) {
   $n = Join-Path $rt.FullName 'dependencies\node\bin\node.exe'
@@ -210,7 +224,7 @@ if (-not $Script:nodeExe) { throw '未找到 DSH runtime 的 node/pnpm（~/.dsh/
 Write-Info "node: $($Script:nodeExe)"
 
 # ================= 3. 备份 =================
-Write-Step '3/9 备份目标文件'
+Write-Step '3/10 备份目标文件'
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $backupDir = Join-Path $Script:DshHome ("backup-重修-$stamp")
 if (-not $DryRun) { New-Item -ItemType Directory -Force -Path $backupDir | Out-Null }
@@ -225,7 +239,7 @@ foreach ($f in @($pkgPath, $patchPath, $agentsPath)) {
 }
 
 # ================= 4. 自研插件 =================
-Write-Step '4/9 同步选中的自研插件'
+Write-Step '4/10 同步选中的自研插件'
 $selectedPlugins = @($LocalPlugins | Where-Object { $items -contains $_.Item })
 foreach ($lp in $selectedPlugins) {
   $src = Join-Path (Join-Path $Script:PayloadDir 'plugins') $lp.Dir
@@ -240,30 +254,50 @@ foreach ($lp in $selectedPlugins) {
 }
 if ($selectedPlugins.Count -eq 0) { Write-Info '（本次不装自研插件）' }
 
-# ================= 5. vendor tgz =================
-Write-Step '5/9 复制选中的离线 tgz'
-$selectedVendor = @($VendorPkgs | Where-Object { $items -contains $_.Item })
-$vendorDst = Join-Path $ProfilePath 'vendor'
-if ($selectedVendor.Count -gt 0 -and -not $DryRun) { New-Item -ItemType Directory -Force -Path $vendorDst | Out-Null }
-foreach ($v in $selectedVendor) {
-  $src = Join-Path (Join-Path $Script:PayloadDir 'vendor') $v.Tgz
-  if (-not (Test-Path $src)) { throw "包内缺少 tgz: $src" }
-  if (-not $DryRun) { Copy-Item $src (Join-Path $vendorDst $v.Tgz) -Force }
-  Write-Info "$($v.Label) -> vendor\$($v.Tgz)"
+# ================= 5. 心理档案 =================
+Write-Step '5/10 心理档案框架'
+if ($items -notcontains 'psych') { Write-Info '（本次不装心理档案）' }
+else {
+  if (-not $PsychDest) { $PsychDest = Join-Path ([Environment]::GetFolderPath('MyDocuments')) '心理档案' }
+  $uname = if ($UserName) { $UserName } else { $env:USERNAME }
+  $psychSrc = Join-Path (Join-Path $Script:PayloadDir 'psych') '心理档案'
+  if (-not (Test-Path (Join-Path $psychSrc '00-总纲'))) { throw "包内缺少心理档案框架: $psychSrc" }
+  if (Test-Path $PsychDest) {
+    Write-Warn2 "目标已存在，跳过（避免覆盖已有记录）: $PsychDest"
+  }
+  elseif ($DryRun) {
+    Write-Info "将复制心理档案到: $PsychDest（用户名: $uname）"
+  }
+  else {
+    Copy-Tree $psychSrc $PsychDest
+    foreach ($f in (Get-ChildItem $PsychDest -Recurse -File -Filter *.md)) {
+      $t = [System.IO.File]::ReadAllText($f.FullName, [System.Text.Encoding]::UTF8)
+      if ($t.Contains('{{USERNAME}}')) {
+        $t = $t.Replace('{{USERNAME}}', $uname)
+        [System.IO.File]::WriteAllText($f.FullName, $t, $Script:Utf8NoBom)
+      }
+    }
+    Write-Info "心理档案 -> $PsychDest（用户名: $uname）"
+  }
 }
-if ($selectedVendor.Count -eq 0) { Write-Info '（本次不装第三方 tgz）' }
 
-# ================= 6. 依赖规格 =================
-Write-Step '6/9 计算依赖规格'
+# ================= 6. 外置插件 =================
+Write-Step '6/10 外置插件（联网 pnpm add，不进包）'
+$selectedExternal = @($ExternalPkgs | Where-Object { $items -contains $_.Item })
+foreach ($e in $selectedExternal) { Write-Info "$($e.Label)  $($e.Name)@$($e.Ver)" }
+if ($selectedExternal.Count -eq 0) { Write-Info '（本次不装外置插件）' }
+
+# ================= 7. 依赖规格 =================
+Write-Step '7/10 计算依赖规格'
 $linkSpecs = @()
 foreach ($lp in $selectedPlugins) {
   $dir = (Join-Path $PluginsDir $lp.Dir).Replace('\', '/')
   $linkSpecs += ('link:' + $dir)
 }
-$fileSpecs = @()
-foreach ($v in $selectedVendor) { $fileSpecs += ('file:vendor/' + $v.Tgz) }
-Write-Info ("link: " + ($linkSpecs -join ', '))
-Write-Info ("file: " + ($fileSpecs -join ', '))
+$onlineSpecs = @()
+foreach ($e in $selectedExternal) { $onlineSpecs += ('{0}@{1}' -f $e.Name, $e.Ver) }
+if ($linkSpecs.Count -gt 0) { Write-Info ("link: " + ($linkSpecs -join ', ')) }
+if ($onlineSpecs.Count -gt 0) { Write-Info ("online: " + ($onlineSpecs -join ', ')) }
 
 if ($DryRun) {
   Write-Host ''
@@ -271,9 +305,9 @@ if ($DryRun) {
   exit 0
 }
 
-# ================= 7. pnpm add =================
-Write-Step '7/9 pnpm add（联网解析依赖）'
-if (($linkSpecs.Count + $fileSpecs.Count) -gt 0) {
+# ================= 8. pnpm add =================
+Write-Step '8/10 pnpm add'
+if (($linkSpecs.Count + $onlineSpecs.Count) -gt 0) {
   $pkg = Get-JsonFile $pkgPath
   $stale = @()
   if ($null -ne $pkg.dependencies) {
@@ -286,27 +320,29 @@ if (($linkSpecs.Count + $fileSpecs.Count) -gt 0) {
     Write-Warn2 ("清理失效 link 依赖: " + ($stale -join ', '))
     [void](Invoke-Pnpm (@('-C', $ProfilePath, 'remove') + $stale))
   }
-  $addArgs = @('-C', $ProfilePath, 'add', '--prefer-offline', '--ignore-scripts', '--config.confirmModulesPurge=false')
+  $addArgs = @('-C', $ProfilePath, 'add', '--ignore-scripts', '--config.confirmModulesPurge=false')
   $addArgs += $linkSpecs
-  $addArgs += $fileSpecs
+  $addArgs += $onlineSpecs
   $addCode = Invoke-Pnpm $addArgs
   if ($addCode -ne 0) { throw "pnpm add 失败（退出码 $addCode）。请确认网络后重跑。" }
 }
 else { Write-Info '（没有需要 pnpm 安装的包）' }
 
-# ================= 8. bundles + patch =================
-Write-Step '8/9 合并 bundles 与 cordis.patch.yml'
+# ================= 9. bundles + patch =================
+Write-Step '9/10 合并 bundles 与 cordis.patch.yml'
 $need = @()
-foreach ($lp in $selectedPlugins) { $need += $lp.Name }
-foreach ($v in $selectedVendor) { $need += $v.Name }
+$bundleNeed = @()
+foreach ($lp in $selectedPlugins) { $need += $lp.Name; $bundleNeed += $lp.Name }
+foreach ($e in $selectedExternal) { $need += $e.Name; if ($e.Bundles) { $bundleNeed += $e.Name } }
 $need = @($need | Select-Object -Unique)
-if ($need.Count -gt 0) {
+$bundleNeed = @($bundleNeed | Select-Object -Unique)
+if ($bundleNeed.Count -gt 0) {
   $pkg = Get-JsonFile $pkgPath
   if ($null -eq $pkg.dsh) { $pkg | Add-Member -NotePropertyName dsh -NotePropertyValue ([pscustomobject]@{}) }
   if ($null -eq $pkg.dsh.profile) { $pkg.dsh | Add-Member -NotePropertyName profile -NotePropertyValue ([pscustomobject]@{}) }
   if ($null -eq $pkg.dsh.profile.bundles) { $pkg.dsh.profile | Add-Member -NotePropertyName bundles -NotePropertyValue @() }
   $bundles = @($pkg.dsh.profile.bundles)
-  foreach ($b in $need) { if ($bundles -notcontains $b) { $bundles += $b } }
+  foreach ($b in $bundleNeed) { if ($bundles -notcontains $b) { $bundles += $b } }
   $pkg.dsh.profile.bundles = $bundles
   Set-JsonFile $pkgPath $pkg
   Write-Info ("bundles: " + ($bundles -join ', '))
@@ -329,8 +365,8 @@ if ((Test-Path $fragmentPath) -and $wantPatch.Count -gt 0) {
 elseif ($wantPatch.Count -eq 0) { Write-Info '（本次不合并配置块）' }
 else { Write-Warn2 '包内缺少 cordis.patch.fragment.yml，跳过配置合并' }
 
-# ================= 9. 白皮书 =================
-Write-Step '9/9 白皮书（AGENTS.md）'
+# ================= 10. 白皮书 =================
+Write-Step '10/10 白皮书（AGENTS.md）'
 if (($items -notcontains 'agents') -or $AgentsPolicy -eq 'keep') {
   Write-Info '本次不处理 AGENTS.md'
 }
@@ -372,10 +408,12 @@ if ($null -ne $pkg.dsh.profile.bundles) { $bundlesNow = @($pkg.dsh.profile.bundl
 $missing = New-Object System.Collections.ArrayList
 foreach ($n in $need) {
   if ($depsNow -notcontains $n) { [void]$missing.Add("dependency:$n") }
-  if ($bundlesNow -notcontains $n) { [void]$missing.Add("bundle:$n") }
+}
+foreach ($b in $bundleNeed) {
+  if ($bundlesNow -notcontains $b) { [void]$missing.Add("bundle:$b") }
 }
 foreach ($lp in $selectedPlugins) { if (-not (Test-Path (Join-Path (Join-Path $ProfilePath 'node_modules') $lp.Name))) { [void]$missing.Add("node_modules:$($lp.Name)") } }
-foreach ($v in $selectedVendor) { if (-not (Test-Path (Join-Path (Join-Path $ProfilePath 'node_modules') $v.Name))) { [void]$missing.Add("node_modules:$($v.Name)") } }
+foreach ($e in $selectedExternal) { if (-not (Test-Path (Join-Path (Join-Path $ProfilePath 'node_modules') $e.Name))) { [void]$missing.Add("node_modules:$($e.Name)") } }
 if ($missing.Count -gt 0) { Write-Warn2 ("校验缺项: " + ($missing -join ', ')) }
 else { Write-Host '   [ok] 选中项目的依赖 / bundles / node_modules 全部就位' -ForegroundColor Green }
 
@@ -383,6 +421,7 @@ Write-Host ''
 Write-Host '安装完成。' -ForegroundColor Green
 Write-Host "本次项目: $($items -join ', ')"
 Write-Host "备份目录: $backupDir"
+if ($items -contains 'psych') { Write-Host "心理档案: $PsychDest" }
 if ($Warnings.Count -gt 0) { Write-Host '警告:' -ForegroundColor Yellow; foreach ($w in $Warnings) { Write-Host "  - $w" } }
 Write-Host ''
 Write-Host '下一步：完全退出并重启 DSH（含后台进程），再刷新页面。' -ForegroundColor Cyan

@@ -817,3 +817,51 @@ plugin_manager list_plugins → include:tool-todo enabled:false
 - **生效**：link 安装，源文件即运行文件，刷新页面即可（未改 Host 半）。
 - 版本：0.3.10 → **0.3.11**。
 
+
+## 30. 修复：底部「已完成」停靠区默认收起（2026-11-01，v0.3.12）
+
+- **现象**：面板底部「已完成」停靠区在未点击、未悬停时仍常驻显示标题行，与代码注释「只在指针进入底部停靠区时才滑出」不符。
+- **根因**：`completedOpen` 初始为 `false` 时只隐藏 body（`completedOpen ? body : null`），但标题行无条件渲染；`completedHover` 只用于让废弃 dock 让位，从未参与完成区自身的显隐。
+- **修法**（全在 `client.js`）：
+  1. 新增 CSS `.dstl-complete-dock.dstl-complete-hidden`：`max-height:0`、padding 清零、透明、`translateY(6px)`、`pointer-events:none`，复用已有的 max-height/padding/opacity/transform 过渡。
+  2. `completedDock` 的 className 追加 `dstl-complete-hidden`，条件为 `!completedOpen && !completedHover`：未钉住且指针不在底部停靠区时整块（含标题行）收起；悬停底部停靠区（废弃区常驻，可作为入口）时滑出标题行，点击标题钉住并展开 body。
+- **验证**：`node --check client.js` 通过；`node --test lib/task-store.test.js` → 51 passed / 0 failed；用户刷新页面后实测：默认不可见、悬停底部滑出、点击可钉住展开，**验收通过（2026-11-01）**。
+- **生效**：link 安装，刷新页面即可（未改 Host 半）。
+- 版本：0.3.11 → **0.3.12**。
+
+## 31. agent 增量工具 task_edit（2026-11-05）
+
+- 需求（用户当轮指令）：agent 只有 `task_list`（读）+ `task_write`（全量替换），而面板 API `/task-list/api/tasks` 早已支持增量 op；把 `applyOp` 包装成 agent 工具 `task_edit`，并修掉 `create` 写死 `origin:'user'` 导致 agent 条目被当成用户任务、后续 `task_write` 删不掉的坑。§12.1 决策 #10「不提供单条 patch 工具」由此废止。
+- 改动（全在 `index.js`）：
+  1. 新增 `taskEditTool()`：`ctx.tools.register` 直接收 JSON Schema（不用 `defineTool`）；`op` = create / update / status / focus / move / pause / block / delete，其余参数 `id` / `input` / `patch` / `status` / `beforeId` / `direction` / `paused` / `blocked` / `scope`；`execute` 调 `applyOp(sessionId, { ...args, sessionId, origin: 'agent' })`，返回整表 `formatTaskList(deriveStatus(result.tasks), false)`；`apply()` 用 `ctx.effect` 注册。
+  2. `applyOp` 的 create 分支：`origin: body.origin === 'agent' ? 'agent' : 'user'`（面板不传 origin，仍是 user）。
+  3. `task_write` 描述第一句改为「Replace the whole list of this session with `tasks`; for day-to-day changes use task_edit.」。
+  4. 顺带：`task_list` 描述末尾改为「write changes with task_edit」；清掉未使用的 `createTask` import（`lsp_diagnostics` 现零诊断）。
+- 验证（2026-11-05）：
+  - `node --check index.js` 通过；`node --test lib/task-store.test.js` → 51 passed / 0 failed。
+  - 重载 Host（`plugin_manager set_plugin include:task-list` 禁用→启用，无需重启应用）后 `task_edit` 出现在工具列表。
+  - 实测链路：`create` 探针 → 原有 6 条任务全在、探针 `origin: "agent"`；`update` 改 title/priority → id 不变、其余条目不变；`task_write` 提交不含探针的 6 条 → 返回 `1 removed`，探针被撤回（证明 origin 修正生效）。
+  - 面板同步：同一份 JSON（`$DSH_HOME/storages/task-list/<sessionId>.json`）+ 同一 GET 路由，面板轮询即可见；待用户刷新确认。
+- 已知边界 / 有意未动：
+  - `pause` 的 scope 仍是 all / subtree（面板语义，`task` 等同 all）；`create` 的 `input` 不暴露 `status`（默认 pending，改状态用 update / status）。
+  - `SHA256SUMS.txt` 原先早已过期（`lib/task-store.js` 在本轮之前就变过）；本轮已按当前实际值全部重算。
+- 规则同步：`~/.dsh/AGENTS.md` 第②条「增量维护」补「单条增删改优先用 `task_edit`；`task_write` 仅用于整体替换」。
+- 版本：0.3.12 → **0.3.13**（`package.json` 只改 version，无依赖 / bundle 变化；`cordis.patch.yml` 未动）。
+- 交付包：`F:\DSH\导出\DSH任务系统重建计划_2026-11-05_v0.3.13.zip`（14 个文件，解包哈希与 `SHA256SUMS.txt` 逐项一致）。
+
+## 32. 修复：review 档在父行不可见（2026-11-05，v0.3.14）
+
+- **原现象**：父任务与子任务都存 `status: 'review'` 时，`task_list` / 面板把父行显示成 `doing`（in_progress），只有子行显示 `needs review`。
+- **根因**：`deriveStatus` 的 `deriveFromChildren`（`lib/task-store.js:524-528`）只认三档——子全 `completed` → completed、子全 `pending` → pending、**其余一律 in_progress**；`review` 被并入 in_progress。父行只渲染派生值（§10.2 / 第 247 行定案「父的存储状态不参与显示」），所以「父任务待验收」在父行表达不出来。
+- **用户决定（2026-11-05 问答卡片）**：修，口径选「**子全 review → 父 review**」；子任务混合 review + pending、或 review + completed 仍算 in_progress。
+- **改动**：
+  - `lib/task-store.js` `deriveFromChildren`：在 completed 与 pending 之间加「全 review → review」。
+  - `client.js` `deriveStatus`：同口径加 `children.every((child) => deriveStatus(child) === 'review')` → `'review'`，两份逻辑保持一致。
+  - `lib/task-store.test.js`：51 → **53** 条（新增：子全 review → review；review+pending → in_progress；review+completed → in_progress；无子 review 任务保留自身状态）。
+- **验证（2026-11-05）**：
+  - `node --check` 三个文件全过；`node --test lib/task-store.test.js` → 53 passed / 0 failed；`lsp_diagnostics` 零诊断。
+  - 重载 Host 后真实链路：`task_edit create` 父 + 子 → 子 `status review` → `task_list` 父行显示 `[needs review]`，子行同样；探针已级联删除。
+  - 面板需刷新页面（client 半）确认父行环色变 review。
+- **边界**：子任务混合 review + pending 仍显示进行中；父自身存储状态不参与显示（§10.2 不变），派生只看向子树。
+- **版本**：0.3.13 → **0.3.14**。
+
