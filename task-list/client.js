@@ -281,6 +281,10 @@ window.__ModuleLoader__.load({
       // Folded away until the pointer reaches the bottom docks (or the user pins
       // it open): the title row is part of the fold, not always-on furniture.
       '.dstl-complete-dock.dstl-complete-hidden{max-height:0;padding-top:0;padding-bottom:0;opacity:0;overflow:hidden;border-top-color:transparent;transform:translateY(6px);pointer-events:none}',
+      // Pointer-only entry, independent of React's mouseenter: hovering anywhere
+      // in the bottom dock strip reveals the completed title row, and keeps it
+      // revealed while the pointer stays inside the same strip.
+      '.dstl-docks:hover .dstl-complete-dock.dstl-complete-hidden{max-height:220px;padding:2px 6px 6px;opacity:1;transform:none;pointer-events:auto;border-top-color:var(--dsw-alias-border-l1,#e3e0da)}',
       '.dstl-complete-dock.dstl-complete-open{max-height:50vh;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--dsw-alias-border-l2,#d6d0c6) transparent}',
       '.dstl-complete-body{padding:0}',
       '.dstl-row[data-drag="true"]{cursor:grab}',

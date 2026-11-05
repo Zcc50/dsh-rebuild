@@ -1,7 +1,7 @@
-# DSH 重修整合包 V3 · 安装说明
+# DSH 重修整合包 V3.1 · 安装说明
 
-> 版本：2026-11-05（V3）| 适用：Windows + DSH Desktop / `dsh web`（本包在 DSH 0.2.1-rc.3 上验证）
-> 一句话：工作区美化、任务列表 0.3.14、待办列表、心理档案框架、视觉、编码、LSP/审查、皮肤——**每一项都先问你**，你确认或修改后才装；非自研插件只给包名与链接，装的时候联网下载。
+> 版本：2026-11-05（V3.1）| 适用：Windows + DSH Desktop / `dsh web`（本包在 DSH 0.2.1-rc.3 上验证）
+> 一句话：工作区美化、任务列表 0.3.15、待办列表、心理档案框架、视觉、编码、LSP/审查、皮肤——**每一项都先问你**，你确认或修改后才装；非自研插件只给包名与链接，装的时候联网下载。
 
 ## 一、包含什么
 
@@ -10,7 +10,7 @@
 | 项目（卡片名） | 内容 | 装好后你会看到 |
 |---|---|---|
 | `workspace` 工作区美化 | `@local/dsh-workspace-frontend` 0.1.0 | 侧栏「工作区 → 分组 → 会话」、拖拽归组、上下文用量环、20%/40% 上下文提醒 |
-| `tasklist` 任务列表 | `@local/dsh-task-list` **0.3.14** | 对话左侧任务面板、五态（含废弃）、父子折叠、完成区/废弃区 dock、`task_edit` 增量工具 |
+| `tasklist` 任务列表 | `@local/dsh-task-list` **0.3.15** | 对话左侧任务面板、五态（含废弃）、父子折叠、完成区/废弃区 dock、`task_edit` 增量工具 |
 | `todolist` 待办列表 | `@local/dsh-todo-list` **0.1.0** | 右侧栏「待办列表」标签：分类/分组/五态、备份导出 |
 | `vision` 视觉 | `dsh-vision` 0.1.0 | `analyze_image` 识图、`screenshot` 截屏（需自备 `vision.env`） |
 
@@ -147,7 +147,7 @@ DSH重修_V3_2026-11-05\
 ├─ 安装指令.md                  给 DSH agent 的 SOP（逐项卡片话术在里面）
 ├─ SHA256SUMS.txt              全包哈希
 └─ payload\
-   ├─ plugins\                 4 个自研插件源码（workspace / tasklist 0.3.14 / todolist 0.1.0 / vision）
+   ├─ plugins\                 4 个自研插件源码（workspace / tasklist 0.3.15 / todolist 0.1.0 / vision）
    ├─ psych\心理档案\           心理档案框架（234 文件，不含个人记录）
    ├─ profile\cordis.patch.fragment.yml
    ├─ AGENTS.md                2026-11-05 版白皮书

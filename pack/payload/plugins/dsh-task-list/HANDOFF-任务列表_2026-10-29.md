@@ -865,3 +865,12 @@ plugin_manager list_plugins → include:tool-todo enabled:false
 - **边界**：子任务混合 review + pending 仍显示进行中；父自身存储状态不参与显示（§10.2 不变），派生只看向子树。
 - **版本**：0.3.13 → **0.3.14**。
 
+## 33. 修复：「已完成」停靠区悬停不出现（2026-11-05，v0.3.15）
+
+- **现象**：面板底部「废弃」行可见，但悬停后「已完成」标题行从不滑出；数据里 t1 / c1 都是 `completed`，主列表正常。
+- **版本定位**：分界点是 v0.3.12（§30）——此前标题行常驻，此后整块（含标题）默认隐藏、靠悬停 `.dstl-docks` 滑出；v0.3.13 / v0.3.14 均未动 dock 代码。
+- **用户选择**：保留隐藏形态，只修悬停，不回到「常驻标题」。
+- **修法**：`client.js` 加纯 CSS 兜底——`.dstl-docks:hover .dstl-complete-dock.dstl-complete-hidden` 直接恢复 `max-height` / `padding` / `opacity` / `transform` / `pointer-events`，不再只依赖 React 的 `onMouseEnter`；原 JS 路径保留，两条路互为兜底。
+- **验证**：`node --check client.js` 通过、`lsp_diagnostics` 零诊断；用户刷新页面后实测悬停可出「已完成」标题、点击可展开，**验收通过（2026-11-05）**。
+- **版本**：0.3.14 → **0.3.15**；交付包 `F:\DSH\导出\DSH任务系统重建计划_2026-11-05_v0.3.15.zip`（14 个文件，解包哈希与 `SHA256SUMS.txt` 逐项一致）。
+
