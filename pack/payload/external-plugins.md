@@ -6,13 +6,13 @@ V3 **不打包**这些插件的本体：包里只留包名、版本、npm 链接
 
 | 项目 | 包名 | 版本 | npm 链接 | 用途 | 写入 bundles |
 |---|---|---|---|---|---|
-| encoding | `dsh-fs-encoding` | 1.5.2 | https://www.npmjs.com/package/dsh-fs-encoding | `read`/`write`/`edit` 自动识别 GBK/UTF-16/Big5 等编码 | 是 |
-| lsp | `dsh-lsp-actions` | 0.5.17 | https://www.npmjs.com/package/dsh-lsp-actions | `lsp_diagnostics` / `lsp_symbols` 等 | 是 |
+| encoding | `dsh-fs-encoding` | 1.5.3 | https://www.npmjs.com/package/dsh-fs-encoding | `read`/`write`/`edit` 自动识别 GBK/UTF-16/Big5 等编码 | 是 |
+| lsp | `dsh-lsp-actions` | 0.5.19 | https://www.npmjs.com/package/dsh-lsp-actions | `lsp_diagnostics` / `lsp_symbols` 等 | 是 |
 | lsp | `brooks-lint` | 1.9.1 | https://www.npmjs.com/package/brooks-lint | 6 个 `brooks-*` 代码审查技能 | 是 |
 | lsp | `typescript` | 5.9.3 | https://www.npmjs.com/package/typescript | LSP 运行时（必须是 5.9.x） | 否 |
 | lsp | `typescript-language-server` | 6.0.2 | https://www.npmjs.com/package/typescript-language-server | TS 语言服务器 | 否 |
-| skin | `dsh-claude-style` | 0.19.5 | https://www.npmjs.com/package/dsh-claude-style | 本机同款配色 / 圆角 / 背景 | 是 |
-| pet | `dsh-pet` | 0.3.8 | https://www.npmjs.com/package/dsh-pet | 桌面宠物（本机在用） | 是 |
+| skin | `dsh-claude-style` | 0.19.9 | https://www.npmjs.com/package/dsh-claude-style | 本机同款配色 / 圆角 / 背景 | 是 |
+| pet | `dsh-pet` | 0.4.4 | https://www.npmjs.com/package/dsh-pet | 桌面宠物（本机在用） | 是 |
 | persona | `whale-persona` | 0.17.7 | https://www.npmjs.com/package/whale-persona | 人设 / 语气插件 | 是 |
 | thinking | `@max-null/dsh-chinese-thinking` | 0.3.1 | https://www.npmjs.com/package/@max-null/dsh-chinese-thinking | 强制中文思考 | 是 |
 | market | `dshmarket` | 1.73.1 | https://www.npmjs.com/package/dshmarket | 插件市场面板（注：预设里市场工具默认禁用） | 是 |

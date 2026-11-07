@@ -1,0 +1,1 @@
+{ "meta": { "title": "Context offload", "description": "When context pressure is high, offloads large tool results to disk and replaces them with a one-line pointer." } }

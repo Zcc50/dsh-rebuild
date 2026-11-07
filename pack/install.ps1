@@ -47,23 +47,24 @@ $LocalPlugins = @(
   @{ Item = 'workspace'; Name = '@local/dsh-workspace-frontend'; Dir = 'dsh-workspace-frontend'; Label = '工作区美化' },
   @{ Item = 'tasklist'; Name = '@local/dsh-task-list'; Dir = 'dsh-task-list'; Label = '任务列表（含父子结构/完成区）' },
   @{ Item = 'todolist'; Name = '@local/dsh-todo-list'; Dir = 'dsh-todo-list'; Label = '抱怨先生的待办列表' },
-  @{ Item = 'vision'; Name = 'dsh-vision'; Dir = 'dsh-vision'; Label = '视觉（识图/截图）' }
+  @{ Item = 'vision'; Name = 'dsh-vision'; Dir = 'dsh-vision'; Label = '视觉（识图/截图）' },
+  @{ Item = 'offload'; Name = '@local/dsh-context-offload'; Dir = 'dsh-context-offload'; Label = '上下文压缩/卸载' }
 )
 $ExternalPkgs = @(
-  @{ Item = 'encoding'; Name = 'dsh-fs-encoding'; Ver = '1.5.2'; Bundles = $true; Label = '编码插件' },
-  @{ Item = 'lsp'; Name = 'dsh-lsp-actions'; Ver = '0.5.17'; Bundles = $true; Label = 'LSP 动作' },
+  @{ Item = 'encoding'; Name = 'dsh-fs-encoding'; Ver = '1.5.3'; Bundles = $true; Label = '编码插件' },
+  @{ Item = 'lsp'; Name = 'dsh-lsp-actions'; Ver = '0.5.19'; Bundles = $true; Label = 'LSP 动作' },
   @{ Item = 'lsp'; Name = 'brooks-lint'; Ver = '1.9.1'; Bundles = $true; Label = '代码审查技能' },
   @{ Item = 'lsp'; Name = 'typescript'; Ver = '5.9.3'; Bundles = $false; Label = 'TypeScript（LSP 运行时）' },
   @{ Item = 'lsp'; Name = 'typescript-language-server'; Ver = '6.0.2'; Bundles = $false; Label = 'TS 语言服务器' },
-  @{ Item = 'skin'; Name = 'dsh-claude-style'; Ver = '0.19.5'; Bundles = $true; Label = '皮肤' },
-  @{ Item = 'pet'; Name = 'dsh-pet'; Ver = '0.3.8'; Bundles = $true; Label = '桌宠' },
+  @{ Item = 'skin'; Name = 'dsh-claude-style'; Ver = '0.19.9'; Bundles = $true; Label = '皮肤' },
+  @{ Item = 'pet'; Name = 'dsh-pet'; Ver = '0.4.4'; Bundles = $true; Label = '桌宠' },
   @{ Item = 'persona'; Name = 'whale-persona'; Ver = '0.17.7'; Bundles = $true; Label = '人设' },
   @{ Item = 'thinking'; Name = '@max-null/dsh-chinese-thinking'; Ver = '0.3.1'; Bundles = $true; Label = '中文思考' },
   @{ Item = 'market'; Name = 'dshmarket'; Ver = '1.73.1'; Bundles = $true; Label = '插件市场' },
   @{ Item = 'find'; Name = 'dsh-find-plugins'; Ver = '0.3.0'; Bundles = $true; Label = '查找插件' }
 )
-$AllItems = @('workspace', 'tasklist', 'todolist', 'psych', 'encoding', 'lsp', 'vision', 'skin', 'pet', 'persona', 'thinking', 'market', 'find', 'agents')
-$DefaultItems = @('workspace', 'tasklist', 'todolist', 'psych', 'encoding', 'lsp', 'vision')
+$AllItems = @('workspace', 'tasklist', 'todolist', 'vision', 'offload', 'psych', 'encoding', 'lsp', 'skin', 'pet', 'persona', 'thinking', 'market', 'find', 'agents')
+$DefaultItems = @('workspace', 'tasklist', 'todolist', 'vision', 'offload', 'psych', 'encoding', 'lsp')
 
 function Write-Step([string]$t) { Write-Host ''; Write-Host "== $t" -ForegroundColor Cyan }
 function Write-Info([string]$t) { Write-Host "   $t" }
@@ -250,6 +251,15 @@ foreach ($lp in $selectedPlugins) {
     Write-Info "覆盖已有目录（已备份）: $dst"
   }
   if (-not $DryRun) { Copy-Tree $src $dst }
+  if ($lp.Item -eq 'offload' -and -not $DryRun) {
+    $offloadPatch = Join-Path $dst 'cordis.patch.yml'
+    if (Test-Path $offloadPatch) {
+      $text = [System.IO.File]::ReadAllText($offloadPatch, [System.Text.Encoding]::UTF8)
+      $offloadRoot = Join-Path $Script:DshHome 'storages\offload'
+      $text = $text.Replace('{{OFFLOAD_ROOT}}', $offloadRoot.Replace('\', '/'))
+      [System.IO.File]::WriteAllText($offloadPatch, $text, $Script:Utf8NoBom)
+    }
+  }
   Write-Info "$($lp.Label) -> $dst"
 }
 if ($selectedPlugins.Count -eq 0) { Write-Info '（本次不装自研插件）' }

@@ -1,7 +1,7 @@
-# DSH 重修整合包 V3.2 · 安装说明
+# DSH 重修整合包 V4 · 安装说明
 
-> 版本：2026-11-05（V3.2）| 适用：Windows + DSH Desktop / `dsh web`（本包在 DSH 0.2.1-rc.3 上验证）
-> 一句话：工作区美化、任务列表 0.3.19、待办列表、心理档案框架、视觉、编码、LSP/审查、皮肤——**每一项都先问你**，你确认或修改后才装；非自研插件只给包名与链接，装的时候联网下载。
+> 版本：2026-11-07（V4）| 适用：Windows + DSH Desktop / `dsh web`（本包在 DSH 0.2.1-rc.3 上验证）
+> 一句话：工作区美化、任务列表 0.3.19、待办列表 1.4.0、上下文压缩/卸载、心理档案框架、视觉、编码、LSP/审查、皮肤——**每一项都先问你**，你确认或修改后才装；非自研插件只给包名与链接，装的时候联网下载。
 
 ## 一、包含什么
 
@@ -11,8 +11,9 @@
 |---|---|---|
 | `workspace` 工作区美化 | `@local/dsh-workspace-frontend` 0.1.0 | 侧栏「工作区 → 分组 → 会话」、拖拽归组、上下文用量环、20%/40% 上下文提醒 |
 | `tasklist` 任务列表 | `@local/dsh-task-list` **0.3.19** | 对话左侧任务面板、五态（含废弃）、父子折叠、完成区/废弃区 dock、`task_edit` 增量工具 |
-| `todolist` 待办列表 | `@local/dsh-todo-list` **0.1.0** | 右侧栏「待办列表」标签：分类/分组/五态、备份导出 |
+| `todolist` 待办列表 | `@local/dsh-todo-list` **1.4.0** | 右侧栏「待办列表」标签：分类/分组/五态、备份导出 |
 | `vision` 视觉 | `dsh-vision` 0.1.0 | `analyze_image` 识图、`screenshot` 截屏（需自备 `vision.env`） |
+| `offload` 上下文压缩 | `@local/dsh-context-offload` 0.1.0 | 上下文压力 ≥35% 时把大工具结果卸到磁盘、换成一行指针；任务完成时清理旧结果，省上下文 |
 
 ### 文件类选装
 
@@ -24,10 +25,10 @@
 
 | 项目 | 包 | 版本 | 用途 |
 |---|---|---|---|
-| `encoding` 编码 | `dsh-fs-encoding` | 1.5.2 | read/write/edit 自动识别 GBK/UTF-16/Big5 |
-| `lsp` LSP + 审查 | `dsh-lsp-actions` + `brooks-lint` + `typescript` + `typescript-language-server` | 0.5.17 / 1.9.1 / 5.9.3 / 6.0.2 | `lsp_diagnostics` 等 + 6 个 brooks 审查技能 |
-| `skin` 皮肤 | `dsh-claude-style` | 0.19.5 | 本机同款配色 / 圆角 / 背景 |
-| `pet` 桌宠 | `dsh-pet` | 0.3.8 | 桌面宠物 |
+| `encoding` 编码 | `dsh-fs-encoding` | 1.5.3 | read/write/edit 自动识别 GBK/UTF-16/Big5 |
+| `lsp` LSP + 审查 | `dsh-lsp-actions` + `brooks-lint` + `typescript` + `typescript-language-server` | 0.5.19 / 1.9.1 / 5.9.3 / 6.0.2 | `lsp_diagnostics` 等 + 6 个 brooks 审查技能 |
+| `skin` 皮肤 | `dsh-claude-style` | 0.19.9 | 本机同款配色 / 圆角 / 背景 |
+| `pet` 桌宠 | `dsh-pet` | 0.4.4 | 桌面宠物 |
 | `persona` 人设 | `whale-persona` | 0.17.7 | 人设 / 语气插件 |
 | `thinking` 中文思考 | `@max-null/dsh-chinese-thinking` | 0.3.1 | 强制中文思考 |
 | `market` 插件市场 | `dshmarket` | 1.73.1 | 市场面板（预设里市场工具默认禁用） |
@@ -94,6 +95,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "<解压目录>\install.ps1"
 - [ ] 对话区左侧出现任务面板；五态齐全；底部有「废弃」与可收起的「已完成」dock
 - [ ] 右侧栏出现「待办列表」标签，能建分类 / 分组 / 五态任务
 - [ ] 任务面板 / 待办列表的数据在 `~/.dsh/storages/` 下按会话落盘，刷新不丢
+- [ ] （装了上下文压缩）工具结果超过 3000 字符且压力 ≥35% 时，`~/.dsh/storages/offload/` 出现归档文件与 `INDEX.md`，会话里原结果变成一行指针
 - [ ] 让 agent 读一个 GBK 文件：`read` 不再报 `E_NOT_TEXT`，中文正常
 - [ ] 打开任意 `.ts` 文件让 agent 调 `lsp_diagnostics`，返回诊断而不是 `LSP_ACTION_SERVER_FAILED`
 - [ ] 会话技能目录里出现 6 个 `brooks-*` 技能

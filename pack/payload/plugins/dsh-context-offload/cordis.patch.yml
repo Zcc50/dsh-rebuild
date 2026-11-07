@@ -1,0 +1,10 @@
+- insert:
+    - id: context-offload
+      name: '@local/dsh-context-offload'
+      config:
+        threshold: 0.35
+        targetRatio: 0.25
+        maxToolResultChars: 3000
+        hotTurns: 2
+        archiveRoot: '{{OFFLOAD_ROOT}}'
+        dryRun: false

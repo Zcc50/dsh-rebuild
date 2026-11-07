@@ -118,9 +118,9 @@ window.__ModuleLoader__.load({
       'time.month': '{n} 个月前',
       'time.year': '{n} 年前',
       'ctx.alert20.title': '上下文已用 {percent}%',
-      'ctx.alert20.body': '已达 20% 提醒线。继续工作即可，到 40% 会提醒先收尾、再换会话。',
-      'ctx.alert40.title': '上下文已用 {percent}%，准备换会话',
-      'ctx.alert40.body': '先把当前工作收尾，我会补齐项目 HANDOFF；随后开一个新会话继续。',
+      'ctx.alert20.body': '已达 25% 提醒线。已交付的内容会落盘留档、只留一行索引指针，需要时按关键词回读，不占上下文。',
+      'ctx.alert40.title': '上下文已用 {percent}%，该收尾了',
+      'ctx.alert40.body': '已过 35% 卸载阈值。按「落盘 → 写指针 → 删原文」卸载已完成历史；请先收尾当前任务，避免砍断正在用的因果链。',
       'browser.balance': '剩余账户余额',
     };
 
@@ -197,9 +197,9 @@ window.__ModuleLoader__.load({
       'time.month': '{n}mo ago',
       'time.year': '{n}y ago',
       'ctx.alert20.title': 'Context {percent}% used',
-      'ctx.alert20.body': '20% reached. Keep working; at 40% you will be asked to wrap up and restart.',
-      'ctx.alert40.title': 'Context {percent}% used - switch sessions soon',
-      'ctx.alert40.body': 'Finish the current task first; the project HANDOFF gets updated, then start a new session.',
+      'ctx.alert20.body': '25% reached. Delivered content is archived and replaced by one-line index pointers; read it back by keyword when needed.',
+      'ctx.alert40.title': 'Context {percent}% used - wrap up now',
+      'ctx.alert40.body': 'Past the 35% offload threshold. Completed history is archived, indexed, then removed; finish the current task first so the causal chain stays intact.',
       'browser.balance': 'Remaining account balance',
     };
 
@@ -1060,7 +1060,9 @@ window.__ModuleLoader__.load({
     // context-pressure alerts
     // ------------------------------------------------------------------
     const CONTEXT_ALERT_KEY = 'dsh.context-alert.v1';
-    const CONTEXT_ALERT_LEVELS = [20, 40];
+    // Aligned with the context-offload plugin: 35% is the pressure threshold that
+    // triggers offload, 25% is the ratio it frees back down to.
+    const CONTEXT_ALERT_LEVELS = [25, 35];
 
     function readContextAlertState() {
       try {
@@ -1082,13 +1084,13 @@ window.__ModuleLoader__.load({
 
     /**
      * One-shot context-pressure alert. Rendered through a portal so the sidebar's
-     * overflow/transform never clips it. 20% fades on its own; 40% waits for a click
+     * overflow/transform never clips it. 25% fades on its own; 35% waits for a click
      * because it carries the handoff instruction.
      */
     function ContextToast(props) {
       const alert = props.alert;
       const t = props.t;
-      const warn = alert.level >= 40;
+      const warn = alert.level >= 35;
       return h('div', {
         className: cx('dssx-context-toast', warn && 'dssx-context-toast-warn'),
         role: warn ? 'alert' : 'status',
@@ -1146,7 +1148,7 @@ window.__ModuleLoader__.load({
     }
 
     // Context ring geometry (14px viewBox, rendered at 18px): one occupancy arc with a
-    // hollow centre dot. The dot steps its colour at the 20% / 40% thresholds.
+    // hollow centre dot. The dot steps its colour at the 25% / 35% thresholds.
     const CTX_CX = 7;
     const CTX_CY = 7;
     const CTX_RADIUS = 5.5;
@@ -1170,8 +1172,8 @@ window.__ModuleLoader__.load({
     /**
      * Context meter: one occupancy arc (the 0-100% colour ladder at the current
      * percent) over a neutral track, with a hollow centre dot. The dot steps its
-     * colour at the rated thresholds — under 20% it takes the arc's own colour,
-     * 20-39% the warning colour, 40%+ the error colour.
+     * colour at the rated thresholds — under 25% it takes the arc's own colour,
+     * 25-34% the warning colour, 35%+ the error colour.
      */
     function ContextRing(props) {
       const percent = Math.max(0, Math.min(100, Number(props.percent) || 0));
@@ -1185,8 +1187,8 @@ window.__ModuleLoader__.load({
       const innerRadius = 3.2;
       const innerStroke = 1;
       const innerGapHalf = 27;
-      const leftColor = percent >= 20 ? 'var(--dsw-alias-state-warn-primary,#d98e2b)' : contextRingColor(0);
-      const rightColor = percent >= 40 ? 'var(--dsw-alias-state-error-primary,#d93025)' : contextRingColor(0);
+      const leftColor = percent >= 25 ? 'var(--dsw-alias-state-warn-primary,#d98e2b)' : contextRingColor(0);
+      const rightColor = percent >= 35 ? 'var(--dsw-alias-state-error-primary,#d93025)' : contextRingColor(0);
       const polarPoint = (radius, deg) => {
         const rad = (deg * Math.PI) / 180;
         return [CTX_CX + radius * Math.cos(rad), CTX_CY + radius * Math.sin(rad)];
@@ -2494,9 +2496,9 @@ window.__ModuleLoader__.load({
         }
       }, [mainSessionId, currentPercent]);
 
-      // The 20% notice is informational, so it fades; the 40% one waits for a click.
+      // The 25% notice is informational, so it fades; the 35% one waits for a click.
       useEffect(() => {
-        if (!contextAlert || contextAlert.level >= 40) return undefined;
+        if (!contextAlert || contextAlert.level >= 35) return undefined;
         const timer = window.setTimeout(() => setContextAlert(null), 6000);
         return () => window.clearTimeout(timer);
       }, [contextAlert]);

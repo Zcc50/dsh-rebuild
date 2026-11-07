@@ -16,7 +16,7 @@ DSH 工作区的侧栏前端重建：在保留宿主会话模型的前提下，�
 - 删除工作区（会话落到「无工作区」，可再拖回）与「添加分组」按钮
 - 会话行左侧上下文用量环：0% 纯绿 → 100% 纯红，每 10% 一档、饱和度降 45%；会话运行中时环会转圈
 - 会话行左侧定时任务时钟：该会话存在活跃自动任务（Host schedule）时显示在上下文环左边
-- 上下文占用提醒：当前会话 ≥20% 弹一次轻提示（6 秒自动消失），≥40% 弹警示提示（需点「知道了」）并提醒先交接再换会话；每会话每档只提醒一次（`dsh.context-alert.v1`）
+- 上下文占用提醒：当前会话 ≥25% 弹一次轻提示（6 秒自动消失），≥35% 弹警示提示（需点「确定」）；文案按上下文卸载协议——已交付内容落盘留索引指针、需要时按关键词回读，35% 起按「落盘 → 写指针 → 删原文」卸载；阈值与卸载插件对齐（35% 触发、25% 回落），每会话每档只提醒一次（`dsh.context-alert.v1`）
 - 工作区标题栏右侧显示**剩余账户余额**（与 设置 → 账号与余额 同源，30 秒刷新；样式同会话金额标签，未登录或读取失败显示 `—`）
 - 左右侧栏拖拽调宽：宿主本就支持拖动，这里补上可见把手（竖线 + 方向箭头）
 - 分组/移动数据只保存在本机浏览器 `localStorage`（key `dsh.session-groups.v1`），不写会话日志，不改会话文件
@@ -74,7 +74,7 @@ PowerShell：
 
 ```powershell
 $dir = "$env:USERPROFILE\.dsh\plugins\dsh-workspace-frontend"
-Get-Content "$dir\SHA256SUMS.txt" | ForEach-Object {
+Get-Content "$dir\SHA256SUMS.txt" -Encoding UTF8 | ForEach-Object {
   $hash, $name = $_ -split '\s+', 2
   $actual = (Get-FileHash (Join-Path $dir $name)).Hash.ToUpper()
   if ($actual -ne $hash) { "MISMATCH: $name" }
