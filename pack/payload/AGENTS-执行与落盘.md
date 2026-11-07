@@ -12,6 +12,7 @@
 - **改完代码先取真实诊断**：改 `.ts/.tsx/.js/.jsx` 后先跑 `lsp_diagnostics` 拿编译/类型错误，再决定下一步；重构用 `lsp_code_action` / `lsp_rename`，不凭手感改符号。
 - **改 → 装 → 验**：改完必须安装，不装等于没做；标准链路 = 语法检查 → 安装 → 哈希校验（SHA256 与源一致）→ 运行 → 验证；完成判据 = 语法通过 + 已装到目标 + 哈希一致 + 给出验证方法，缺一不称「完成」；文档类改动：语法 → 回读核对 → 引用扫描 → 条目抽检执行，不套用安装/哈希。
 - **大段中文 / 引号 / 空格敏感文本**：`edit` 易匹配失败，改用按行号插入或整段替换。
+- **改文件优先用 `edit` 改局部，不 `write` 整篇**（2026-11-07 补）：整篇重写会把全文再塞进上下文，体积是局部修改的数倍，而且这部分内容插件卸不掉。
 
 ## 第⑤条 证据（验证与纠错）
 
@@ -29,6 +30,14 @@
 - pip / npm / 构建前：`TMP`、`TEMP` 指向 `DSH\temp`；pip 用 `--cache-dir DSH\temp\pip-cache`。
 - **编码（高频踩坑）**：含中文的 `.ps1` / `.bat` / `.txt` 必须 UTF-8 带 BOM（PS5.1 读无 BOM 的 UTF-8 会按 GBK 解释 → 乱码 / 解析报错）；`edit` / `write` 写出默认无 BOM，改完 `.ps1` 立即转换：`$c=[IO.File]::ReadAllText($p,[Text.Encoding]::UTF8); [IO.File]::WriteAllText($p,$c,(New-Object Text.UTF8Encoding($true)))`；`Out-File -Encoding UTF8` 在 PS5.1 自动带 BOM，`WriteAllText` 默认无 BOM 必须显式 `UTF8Encoding($true)`；读旧日志用 `Get-Content -Encoding Default`（GBK）。
 - **文件读写由 `dsh-fs-encoding` 1.5.2 接管**（2026-10-31 已装，重启后生效）：`read` / `write` / `edit` 自动识别 GBK/Big5/UTF-16 等，`read` 报 `E_NOT_TEXT` 时带 `encoding:"gbk"` 重读，不需要再绕 PowerShell 转码；上面 `.ps1/.bat/.txt` 的 BOM 规范仍适用于**执行层**，插件管不了管道编码。
+
+## 上下文卸载（dsh-context-offload 接管）
+
+- **触发**：看到 `[已卸载]` 指针，或需要早前被换掉的大段工具输出。
+- **回读**：先 `grep` `projects\_offload\INDEX.md` 的 seq 或关键词，命中再 `read` 对应文件；未命中按「未记录」处理，不猜。
+- **默认不读**：没有明确需要就不加载，否则回读成本会吃掉卸载收益。
+- **禁动**：`projects\_offload\` 下的文件与 INDEX 只增不删、不移，那是保底原文。
+- **插件在跑**：每轮收尾查两件事——压力到 35%（1M 窗口约 37 万 token）就清到 25%；有任务刚完成就清该时刻之前的结果。单条门槛 3,000 字符，`task_*` / `todo_*` 不卸；验证看 `_offload\offload.log`。
 
 ## 与白皮书的分工
 
