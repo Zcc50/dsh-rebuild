@@ -7,7 +7,7 @@ window.__ModuleLoader__.load({
 Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
 let react = require("react");
 let react_jsx_runtime = require("react/jsx-runtime");
-// projects/抱怨先生的待办列表/plugin/src/client/todo-api.js
+// plugin/src/client/todo-api.js
 /**
 * Client half of the todo store.
 *
@@ -80,7 +80,9 @@ const todoApi = {
 		});
 	}
 };
-// projects/抱怨先生的待办列表/plugin/src/ui/TaskProgressRing.jsx
+// plugin/src/client/version.js
+var version_default = "1.4.0";
+// plugin/src/ui/TaskProgressRing.jsx
 const RING_GREY = {
 	saturation: 12,
 	lightness: 78
@@ -198,7 +200,7 @@ function TaskProgressRing({ percent = 0, title = "" }) {
 		})
 	});
 }
-// projects/抱怨先生的待办列表/plugin/src/ui/TaskMarker.jsx
+// plugin/src/ui/TaskMarker.jsx
 const STATUS_COLOR = {
 	pending: "#848891",
 	in_progress: "#3749a4",
@@ -402,7 +404,7 @@ function TaskMarker({ status, prevStatus = null, enterOnMount = false, arrow = f
 		}, `anim-${phase}-${anim.color}`)]
 	});
 }
-// projects/抱怨先生的待办列表/plugin/src/ui/TaskRow.jsx
+// plugin/src/ui/TaskRow.jsx
 const ICON = {
 	fill: "none",
 	stroke: "currentColor",
@@ -695,7 +697,7 @@ function TaskRow({ task, variant = "card", derivedStatus, hasChildren = false, c
 									]
 								})
 							})] }),
-							/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+							!task.parentId && /* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
 								type: "button",
 								className: "dstl-icon-btn dstl-danger" + (confirmArmed ? " dstl-confirming" : ""),
 								title: isAbandoned ? "恢复" : confirmArmed ? "再点一次确认废弃（4 秒内）" : "废弃（需连点两次，Shift+点击彻底删除）",
@@ -882,7 +884,7 @@ function TaskRow({ task, variant = "card", derivedStatus, hasChildren = false, c
 		]
 	});
 }
-// projects/抱怨先生的待办列表/plugin/src/core/task-store.js
+// plugin/src/core/task-store.js
 /**
 * Task list merge rules — pure functions, no DOM, no I/O, no timers.
 *
@@ -1281,37 +1283,75 @@ function monthKey(date) {
 * "last done 10-30". Deadline tasks are untouched — they only gain a red
 * "overdue N days" hint at render time.
 *
+* Categories live on the top-level task only (§7.0: children inherit), and a
+* parent's status is derived from its children — so the unit of rollover is the
+* top-level task, not the individual row:
+*
+* - no children: the parent itself counts, and resets to `pending` when done;
+* - with children: the group counts as done once every non-abandoned child is
+*   `completed`; the rollover puts all of those children back to `pending` and
+*   stamps `lastCompletedAt` on the parent.
+*
 * Pure: returns `{ tasks, changed }` and never mutates the input.
 */
 function refreshRecurring(tasks, now) {
 	const at = Number.isFinite(now) ? now : Date.now();
 	const today = new Date(at);
 	const list = Array.isArray(tasks) ? tasks : [];
-	let changed = false;
+	const childrenOf = /* @__PURE__ */ new Map();
+	for (const task of list) {
+		if (task.parentId === null || task.parentId === void 0) continue;
+		const bucket = childrenOf.get(task.parentId);
+		if (bucket) bucket.push(task);
+		else childrenOf.set(task.parentId, [task]);
+	}
+	const replaced = /* @__PURE__ */ new Map();
+	for (const top of list) {
+		if (top.parentId !== null && top.parentId !== void 0) continue;
+		const category = top.category;
+		if (category !== "daily" && category !== "monthly") continue;
+		const children = (childrenOf.get(top.id) || []).filter((child) => child.status !== "abandoned");
+		if (!(children.length > 0 ? children.every((child) => child.status === "completed") : top.status === "completed")) continue;
+		const stamps = [];
+		for (const child of children) {
+			const stamp = Number.isFinite(child.completedAt) ? child.completedAt : child.lastCompletedAt;
+			if (Number.isFinite(stamp)) stamps.push(stamp);
+		}
+		if (Number.isFinite(top.lastCompletedAt)) stamps.push(top.lastCompletedAt);
+		if (stamps.length === 0) continue;
+		const last = Math.max.apply(null, stamps);
+		const lastDate = new Date(last);
+		if (Number.isNaN(lastDate.getTime())) continue;
+		if (!(category === "daily" ? dayKey(lastDate) !== dayKey(today) : monthKey(lastDate) !== monthKey(today))) continue;
+		const stamped = {
+			...top,
+			lastCompletedAt: last,
+			version: (top.version || 0) + 1,
+			updatedAt: at
+		};
+		replaced.set(top.id, children.length > 0 ? stamped : {
+			...stamped,
+			status: "pending",
+			completedAt: null
+		});
+		for (const child of children) replaced.set(child.id, {
+			...child,
+			status: "pending",
+			completedAt: null,
+			version: (child.version || 0) + 1,
+			updatedAt: at
+		});
+	}
+	if (replaced.size === 0) return {
+		tasks: list,
+		changed: false
+	};
 	return {
-		tasks: list.map((task) => {
-			const category = task && task.category;
-			if (category !== "daily" && category !== "monthly") return task;
-			if (task.status !== "completed") return task;
-			const last = Number.isFinite(task.lastCompletedAt) ? task.lastCompletedAt : task.completedAt;
-			if (!Number.isFinite(last)) return task;
-			const lastDate = new Date(last);
-			if (Number.isNaN(lastDate.getTime())) return task;
-			if (!(category === "daily" ? dayKey(lastDate) !== dayKey(today) : monthKey(lastDate) !== monthKey(today))) return task;
-			changed = true;
-			return {
-				...task,
-				status: "pending",
-				completedAt: null,
-				lastCompletedAt: last,
-				version: (task.version || 0) + 1,
-				updatedAt: at
-			};
-		}),
-		changed
+		tasks: list.map((task) => replaced.get(task.id) || task),
+		changed: true
 	};
 }
-// projects/抱怨先生的待办列表/plugin/src/ui/TaskPanel.jsx
+// plugin/src/ui/TaskPanel.jsx
 const SECTION_ORDER = [
 	"pending",
 	"in_progress",
@@ -1386,6 +1426,11 @@ function TaskPanel() {
 	const [loaded, setLoaded] = (0, react.useState)(false);
 	const [notice, setNotice] = (0, react.useState)("");
 	const [noticeDetail, setNoticeDetail] = (0, react.useState)("");
+	const [storeMeta, setStoreMeta] = (0, react.useState)({
+		version: 0,
+		updatedAt: 0
+	});
+	const storeVersion = (0, react.useRef)(0);
 	const [filter, setFilter] = (0, react.useState)("all");
 	const [abandonedCollapsed, setAbandonedCollapsed] = (0, react.useState)(true);
 	const [completedOpen, setCompletedOpen] = (0, react.useState)(false);
@@ -1424,6 +1469,8 @@ function TaskPanel() {
 	const [extraGroups, setExtraGroups] = (0, react.useState)(() => readExtraGroups());
 	const [groupCreatingFor, setGroupCreatingFor] = (0, react.useState)(null);
 	const [newGroupDraft, setNewGroupDraft] = (0, react.useState)("");
+	const [renamingGroupKey, setRenamingGroupKey] = (0, react.useState)(null);
+	const [renameGroupDraft, setRenameGroupDraft] = (0, react.useState)("");
 	const [enteringIds, setEnteringIds] = (0, react.useState)(() => /* @__PURE__ */ new Set());
 	const [enteringGroups, setEnteringGroups] = (0, react.useState)(() => /* @__PURE__ */ new Set());
 	const enterTimer = (0, react.useRef)(0);
@@ -1507,11 +1554,12 @@ function TaskPanel() {
 		let alive = true;
 		todoApi.load().then((snapshot) => {
 			if (!alive) return;
+			rememberStore(snapshot);
 			const migrated = migrateTasks(Array.isArray(snapshot.tasks) ? snapshot.tasks : []);
 			const refreshed = refreshRecurring(migrated.tasks, Date.now());
 			setTasks(refreshed.tasks);
 			setLoaded(true);
-			if (migrated.changed || refreshed.changed) todoApi.save(refreshed.tasks).catch(() => {});
+			if (migrated.changed || refreshed.changed) todoApi.save(refreshed.tasks).then(rememberStore).catch(() => {});
 		}).catch((error) => {
 			if (!alive) return;
 			setLoaded(true);
@@ -1536,21 +1584,45 @@ function TaskPanel() {
 			setTasks((current) => {
 				const refreshed = refreshRecurring(current, Date.now());
 				if (!refreshed.changed) return current;
-				todoApi.save(refreshed.tasks).catch(() => {});
+				todoApi.save(refreshed.tasks).then(rememberStore).catch(() => {});
 				return refreshed.tasks;
 			});
 		}, 6e4);
 		return () => window.clearInterval(timer);
 	}, []);
+	const rememberStore = (0, react.useCallback)((payload) => {
+		const version = Number(payload && payload.version) || 0;
+		storeVersion.current = version;
+		setStoreMeta({
+			version,
+			updatedAt: Number(payload && payload.updatedAt) || 0
+		});
+	}, []);
+	(0, react.useEffect)(() => {
+		const timer = window.setInterval(() => {
+			todoApi.load().then((snapshot) => {
+				if ((Number(snapshot.version) || 0) === storeVersion.current) return;
+				rememberStore(snapshot);
+				const migrated = migrateTasks(Array.isArray(snapshot.tasks) ? snapshot.tasks : []);
+				const refreshed = refreshRecurring(migrated.tasks, Date.now());
+				setTasks(refreshed.tasks);
+				if (migrated.changed || refreshed.changed) todoApi.save(refreshed.tasks).then(rememberStore).catch(() => {});
+			}).catch(() => {});
+		}, 5e3);
+		return () => window.clearInterval(timer);
+	}, [rememberStore]);
 	const persist = (0, react.useCallback)((next) => {
 		setTasks(next);
 		window.clearTimeout(saveTimer.current);
 		saveTimer.current = window.setTimeout(() => {
-			todoApi.save(next).then(() => setNotice("")).catch((error) => {
+			todoApi.save(next).then((reply) => {
+				rememberStore(reply);
+				setNotice("");
+			}).catch((error) => {
 				setNotice("保存失败：" + String(error && error.message ? error.message : error));
 			});
 		}, 120);
-	}, []);
+	}, [rememberStore]);
 	const byParent = (0, react.useMemo)(() => {
 		const map = /* @__PURE__ */ new Map();
 		for (const task of tasks) {
@@ -1931,6 +2003,56 @@ function TaskPanel() {
 	const selectGroup = (categoryKey, name) => {
 		setFilter(categoryKey);
 		setGroupFilter(name);
+	};
+	const findGroupByKey = (key) => {
+		if (!key) return null;
+		for (const categoryKey of Object.keys(groupsByCategory)) {
+			const hit = groupsByCategory[categoryKey].find((group) => categoryKey + ":" + group.name === key);
+			if (hit) return {
+				categoryKey,
+				from: hit.name
+			};
+		}
+		return null;
+	};
+	const startGroupRename = (categoryKey, name) => {
+		setRenamingGroupKey(categoryKey + ":" + name);
+		setRenameGroupDraft(name);
+	};
+	const commitGroupRename = (blurOnly = false) => {
+		const target = findGroupByKey(renamingGroupKey);
+		if (!target) {
+			setRenamingGroupKey(null);
+			setRenameGroupDraft("");
+			return;
+		}
+		const { categoryKey, from } = target;
+		const next = renameGroupDraft.trim();
+		if (!blurOnly || next) {
+			if (next && next !== from) {
+				const renamed = tasks.map((task) => {
+					if (task.group !== from) return task;
+					return (task.category === "daily" || task.category === "monthly" || task.category === "deadline" ? task.category : "infinite") === categoryKey ? {
+						...task,
+						group: next
+					} : task;
+				});
+				const stored = readExtraGroups();
+				stored[categoryKey] = Array.from(new Set((stored[categoryKey] || []).map((name) => name === from ? next : name)));
+				writeExtraGroups(stored);
+				setExtraGroups(stored);
+				if (filter === categoryKey && groupFilter === from) setGroupFilter(next);
+				persist(renamed);
+				setNotice("已重命名分组：" + from + " → " + next);
+				setNoticeDetail("");
+			}
+		}
+		setRenamingGroupKey(null);
+		setRenameGroupDraft("");
+	};
+	const cancelGroupRename = () => {
+		setRenamingGroupKey(null);
+		setRenameGroupDraft("");
 	};
 	const startNewGroup = (categoryKey) => {
 		setGroupCreatingFor(categoryKey);
@@ -2541,10 +2663,45 @@ function TaskPanel() {
 										const on = filter === item.key && groupFilter === group.name;
 										const groupKey = item.key + ":" + group.name;
 										const enteringGroup = enteringGroups.has(groupKey);
+										if (renamingGroupKey === groupKey) return /* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+											className: "dstl-side-group-row dstl-side-group-edit",
+											children: /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
+												className: "dstl-inline-form",
+												children: [
+													/* @__PURE__ */ (0, react_jsx_runtime.jsx)("input", {
+														className: "dstl-input",
+														value: renameGroupDraft,
+														autoFocus: true,
+														"aria-label": "分组名",
+														onChange: (event) => setRenameGroupDraft(event.target.value),
+														onKeyDown: (event) => {
+															if (event.key === "Enter") commitGroupRename();
+															if (event.key === "Escape") cancelGroupRename();
+														},
+														onBlur: () => commitGroupRename(true)
+													}),
+													/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+														type: "button",
+														className: "dstl-btn dstl-primary",
+														onMouseDown: (event) => event.preventDefault(),
+														onClick: () => commitGroupRename(),
+														children: "确认"
+													}),
+													/* @__PURE__ */ (0, react_jsx_runtime.jsx)("button", {
+														type: "button",
+														className: "dstl-btn",
+														onMouseDown: (event) => event.preventDefault(),
+														onClick: () => cancelGroupRename(),
+														children: "取消"
+													})
+												]
+											})
+										}, group.name);
 										return /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("button", {
 											type: "button",
 											className: "dstl-side-group-row" + (on ? " dstl-side-on" : "") + (sideDrop === "g:" + item.key + ":" + group.name ? " dstl-side-drop" : "") + (enteringGroup ? " dstl-item-in" : ""),
 											onClick: () => selectGroup(item.key, group.name),
+											onDoubleClick: () => startGroupRename(item.key, group.name),
 											onDragOver: (event) => overSide(event, "g:" + item.key + ":" + group.name),
 											onDrop: (event) => dropSideGroup(event, item.key, group.name),
 											children: [
@@ -2841,16 +2998,17 @@ function TaskPanel() {
 							})]
 						})]
 					}),
-					/* @__PURE__ */ (0, react_jsx_runtime.jsx)("div", {
+					/* @__PURE__ */ (0, react_jsx_runtime.jsxs)("div", {
 						className: "dstl-foot",
-						children: notice ? /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { className: "dstl-foot-dot" + (notice.includes("失败") ? " dstl-foot-dot-error" : "") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
+						children: [notice && /* @__PURE__ */ (0, react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", { className: "dstl-foot-dot" + (notice.includes("失败") ? " dstl-foot-dot-error" : "") }), /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
 							className: "dstl-foot-text",
 							title: noticeDetail || notice,
 							children: notice
-						})] }) : /* @__PURE__ */ (0, react_jsx_runtime.jsx)("span", {
-							className: "dstl-foot-text",
-							children: "双击标题改名 · 悬停行出现操作 · 长按删除需 Shift+点击彻底删除"
-						})
+						})] }), /* @__PURE__ */ (0, react_jsx_runtime.jsxs)("span", {
+							className: "dstl-foot-ver",
+							title: "插件 v" + version_default + (storeMeta.updatedAt ? " · 数据 v" + storeMeta.version + " · 最近写入 " + new Date(storeMeta.updatedAt).toLocaleString("zh-CN", { hour12: false }) : " · 数据 v" + storeMeta.version),
+							children: ["v", version_default]
+						})]
 					})
 				]
 			}),
@@ -2955,9 +3113,66 @@ function TaskPanel() {
 		]
 	});
 }
-// projects/抱怨先生的待办列表/plugin/src/ui/styles-text.js
-var styles_text_default = "﻿/* Task panel styles — migrated from DSH任务系统重建计划/client.js (CSS array, lines 227-398).\n   Only the outer shell changes: the floating .dstl-panel becomes a full-page .dstl-app.\n   Every rule keeps its --dsw-* variable plus the original hex fallback, so the app\n   renders correctly without a DSH theme host. */\n\n/* Theme values come from the host; every rule below keeps its hex fallback, so\n   the panel stays readable even where a token is missing. Nothing is declared\n   on :root and no rule targets html/body: an injected stylesheet must not\n   repaint the host application. */\n\n.dstl-app,\n.dstl-app * {\n  box-sizing: border-box;\n}\n\n/* shell: two columns — a fixed navigation rail on the left, the task list on\n   the right. */\n.dstl-app {\n  position: relative;\n  height: 100%;\n  min-width: 0;\n  display: flex;\n  flex-direction: row;\n  background: var(--dsw-alias-bg-layer-1, #ffffff);\n  font-family: var(--dsw-font-family, \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif);\n  color: var(--dsw-alias-label-primary, #1f1f1f);\n  user-select: none;\n  overflow: hidden;\n}\n\n.dstl-sidebar {\n  flex: none;\n  width: 208px;\n  display: flex;\n  flex-direction: column;\n  gap: 6px;\n  padding: 10px 5px 8px;\n  border-right: 1px solid var(--dsw-alias-border-l1, #e3e0da);\n  background: var(--dsw-alias-bg-layer-2, #faf9f7);\n  overflow: hidden;\n}\n\n.dstl-side-head {\n  display: flex;\n  align-items: center;\n  gap: 6px;\n  padding: 0 4px 6px;\n}\n\n.dstl-side-title {\n  font-size: 13px;\n  font-weight: 600;\n  color: var(--dsw-alias-label-primary, #1f1f1f);\n  white-space: nowrap;\n  overflow: hidden;\n  text-overflow: ellipsis;\n}\n\n.dstl-side-tabs {\n  display: flex;\n  flex-direction: column;\n  gap: 0;\n}\n\n.dstl-side-row {\n  display: flex;\n  align-items: center;\n  gap: 7px;\n  padding: 2px 5px;\n  border-radius: 8px;\n}\n\n.dstl-side-row:hover {\n  background: var(--dsw-alias-interactive-bg-hover, #f2efe9);\n}\n\n/* The active row is marked by the marker arrow turned right (see the marker\n   rules at the bottom) instead of a filled block, so it keeps the plain\n   background and only deepens the label colour. */\n.dstl-side-row.dstl-side-on {\n  background: transparent;\n}\n\n.dstl-side-row.dstl-side-on .dstl-side-label {\n  color: var(--dsw-alias-label-primary, #1f1f1f);\n}\n\n/* Same left-right slide as a foldable parent row's title (`.dstl-row-head\n   .dstl-title`): the label tucks 11px under the ring at rest, then steps right\n   17px whenever the ring's fold arrow turns and grows — on hover and while the\n   row is the active one, since the arrow stays expanded there. */\n.dstl-side-row:hover .dstl-side-label,\n.dstl-side-row.dstl-side-on .dstl-side-label {\n  margin-left: 6px;\n}\n\n.dstl-side-row.dstl-side-on .dstl-side-count {\n  color: var(--dsw-alias-label-secondary, #656871);\n  opacity: 1;\n}\n\n.dstl-side-ring-btn {\n  flex: none;\n  display: inline-flex;\n  align-items: center;\n  justify-content: center;\n  padding: 0;\n  border: none;\n  background: transparent;\n  cursor: pointer;\n}\n\n/* Marker sizes, biggest at the root row and smallest at a group. Overriding\n   width/height only scales the same SVG, so every animation stays identical. */\n.dstl-side-ring-btn svg {\n  width: 44px;\n  height: 37px;\n}\n.dstl-side-root .dstl-side-ring-btn svg {\n  width: 48px;\n  height: 41px;\n}\n\n.dstl-side-label {\n  flex: 1;\n  min-width: 0;\n  padding: 0;\n  border: none;\n  background: transparent;\n  color: var(--dsw-alias-label-secondary, #656871);\n  font: inherit;\n  font-size: 13px;\n  line-height: 18px;\n  text-align: left;\n  cursor: pointer;\n  margin-left: -11px;\n  transition: margin-left .2s ease;\n  white-space: nowrap;\n  overflow: hidden;\n  text-overflow: ellipsis;\n}\n\n.dstl-side-children {\n  display: flex;\n  flex-direction: column;\n  gap: 2px;\n  margin-left: 14px;\n  padding-left: 6px;\n}\n\n.dstl-side-branch {\n  display: flex;\n  flex-direction: column;\n  gap: 1px;\n}\n\n.dstl-side-groups {\n  display: flex;\n  flex-direction: column;\n  gap: 1px;\n  margin: 1px 0 3px 22px;\n  padding-left: 8px;\n  /* Same fold as a parent row's sections: height/margins animate, content slides\n     out to the left, so opening and closing read as one horizontal motion. */\n  transition: height .24s cubic-bezier(.2,.8,.2,1), margin .24s ease, opacity .24s ease, transform .24s cubic-bezier(.2,.8,.2,1);\n}\n\n.dstl-side-group-row {\n  display: flex;\n  align-items: center;\n  gap: 5px;\n  width: 100%;\n  padding: 1px 5px;\n  border: none;\n  border-radius: 6px;\n  background: transparent;\n  color: var(--dsw-alias-label-tertiary, #848891);\n  font: inherit;\n  font-size: 12.5px;\n  line-height: 17px;\n  text-align: left;\n  cursor: pointer;\n}\n\n.dstl-side-group-row:hover {\n  background: var(--dsw-alias-interactive-bg-hover, #f2efe9);\n  color: var(--dsw-alias-label-primary, #1f1f1f);\n}\n\n.dstl-side-group-row.dstl-side-on {\n  background: transparent;\n  color: var(--dsw-alias-label-primary, #1f1f1f);\n}\n\n.dstl-side-group-name {\n  flex: 1;\n  min-width: 0;\n  white-space: nowrap;\n  overflow: hidden;\n  text-overflow: ellipsis;\n}\n\n.dstl-side-group-count {\n  flex: none;\n  font-size: 10.5px;\n  line-height: 16px;\n  font-variant-numeric: tabular-nums;\n  opacity: 0.7;\n}\n\n.dstl-side-group-row.dstl-side-on .dstl-side-group-count {\n  color: var(--dsw-alias-label-secondary, #656871);\n  opacity: 1;\n}\n\n/* A group carries the same fold marker as a category, one notch smaller; it has\n   no children, so the arrow only ever means \"selected\" (0deg) or not (90deg). */\n.dstl-side-group-row .dstl-side-ring-btn {\n  width: 34px;\n  height: 29px;\n}\n.dstl-side-group-row .dstl-side-ring-btn svg {\n  width: 34px;\n  height: 29px;\n}\n\n.dstl-side-tab {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 6px;\n  width: 100%;\n  padding: 7px 10px;\n  border: 1px solid transparent;\n  border-radius: 9px;\n  background: transparent;\n  color: var(--dsw-alias-label-secondary, #656871);\n  font: inherit;\n  font-size: 12.5px;\n  line-height: 18px;\n  text-align: left;\n  cursor: pointer;\n}\n\n.dstl-side-tab:hover {\n  background: var(--dsw-alias-interactive-bg-hover, #f2efe9);\n  color: var(--dsw-alias-label-primary, #1f1f1f);\n}\n\n.dstl-side-tab.dstl-side-on {\n  background: var(--dsw-alias-brand-primary, #3749a4);\n  border-color: var(--dsw-alias-brand-primary, #3749a4);\n  color: #ffffff;\n}\n\n.dstl-side-plus{flex:none;width:14px;height:14px;padding:0;border:none;border-radius:4px;background:transparent;color:var(--dsw-alias-label-tertiary,#a39d92);font-size:14px;line-height:13px;text-align:center;cursor:pointer;opacity:.45;transition:opacity .12s ease,background .12s ease,color .12s ease}\n.dstl-side-row:hover .dstl-side-plus,.dstl-side-row.dstl-side-on .dstl-side-plus{opacity:1}\n.dstl-side-plus:hover{background:var(--dsw-alias-border-l1,#e8e4dc);color:var(--dsw-alias-label-primary,#1f1f1f)}\n/* The group composer reuses the task composer, but the sidebar column is only\n   188px wide, so the input takes a full line and the two buttons sit below. */\n.dstl-side-group-new{padding:0;background:transparent}\n.dstl-side-group-new .dstl-inline-form{flex-wrap:wrap;gap:4px;padding:2px 0 4px}\n.dstl-side-group-new .dstl-input{flex:1 1 100%;font-size:12px;padding:3px 6px}\n.dstl-side-group-new .dstl-btn{font-size:11px;padding:2px 8px;line-height:16px}\n.dstl-side-group-input{width:100%;box-sizing:border-box;padding:2px 6px;border:1px solid var(--dsw-alias-brand-primary,#3749a4);border-radius:6px;background:var(--dsw-alias-bg-layer-1,#fff);color:var(--dsw-alias-label-primary,#1f1f1f);font:inherit;font-size:12px;line-height:17px;outline:none}\n.dstl-side-count {\n  font-size: 11.5px;\n  font-variant-numeric: tabular-nums;\n  opacity: 0.7;\n}\n\n.dstl-side-foot {\n  margin-top: auto;\n  display: flex;\n  flex-direction: column;\n  gap: 6px;\n  padding-top: 8px;\n  border-top: 1px dashed var(--dsw-alias-border-l1, #e3e0da);\n}\n\n.dstl-side-btn {\n  display: flex;\n  align-items: center;\n  gap: 6px;\n  width: 100%;\n  padding: 6px 10px;\n  border: 1px solid var(--dsw-alias-border-l1, #e3e0da);\n  border-radius: 9px;\n  background: var(--dsw-alias-bg-layer-1, #fff);\n  color: var(--dsw-alias-label-secondary, #656871);\n  font: inherit;\n  font-size: 12px;\n  line-height: 18px;\n  text-align: left;\n  cursor: pointer;\n}\n\n.dstl-side-btn:hover {\n  background: var(--dsw-alias-interactive-bg-hover, #f2efe9);\n  color: var(--dsw-alias-label-primary, #1f1f1f);\n}\n\n.dstl-settings {\n  display: flex;\n  flex-direction: column;\n  gap: 2px;\n  padding: 4px;\n  border: 1px solid var(--dsw-alias-border-l1, #e3e0da);\n  border-radius: 9px;\n  background: var(--dsw-alias-bg-layer-1, #fff);\n  box-shadow: var(--dsw-shadow-soft, 0 8px 24px rgba(15, 17, 21, 0.06));\n}\n\n.dstl-settings-item {\n  padding: 6px 8px;\n  border: none;\n  border-radius: 6px;\n  background: transparent;\n  color: var(--dsw-alias-label-primary, #1f1f1f);\n  font: inherit;\n  font-size: 12px;\n  line-height: 18px;\n  text-align: left;\n  cursor: pointer;\n  white-space: nowrap;\n}\n\n.dstl-settings-item:hover {\n  background: var(--dsw-alias-interactive-bg-hover, #f2efe9);\n}\n\n.dstl-settings-sep {\n  height: 1px;\n  margin: 3px 2px;\n  background: var(--dsw-alias-border-l1, #e3e0da);\n}\n\n.dstl-settings-field {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 6px;\n  padding: 4px 8px;\n}\n\n.dstl-settings-label {\n  flex: 1;\n  min-width: 0;\n  font-size: 11px;\n  line-height: 16px;\n  color: var(--dsw-alias-label-tertiary, #848891);\n  display: inline-flex;\n  align-items: center;\n  gap: 4px;\n}\n\n.dstl-settings-warn {\n  padding: 0 4px;\n  border-radius: 4px;\n  background: rgba(192, 57, 43, 0.12);\n  color: #c0392b;\n  font-size: 10px;\n  line-height: 14px;\n}\n\n.dstl-settings-path {\n  grid-column: 1 / 2;\n  font-size: 11px;\n  line-height: 15px;\n  color: var(--dsw-alias-label-secondary, #656871);\n  white-space: nowrap;\n  overflow: hidden;\n  text-overflow: ellipsis;\n  direction: rtl;\n  text-align: left;\n}\n\n.dstl-settings-mini {\n  padding: 2px 8px;\n  border: 1px solid var(--dsw-alias-border-l1, #e3e0da);\n  border-radius: 6px;\n  background: var(--dsw-alias-bg-layer-1, #fff);\n  color: var(--dsw-alias-label-secondary, #656871);\n  font: inherit;\n  font-size: 11px;\n  cursor: pointer;\n}\n\n/* 更改 / 默认 并排在同一行的右侧，窄侧栏里也能放下 */\n.dstl-settings-actions {\n  flex: none;\n  display: flex;\n  align-items: center;\n  gap: 4px;\n}\n\n.dstl-settings-actions .dstl-settings-mini {\n  padding: 1px 6px;\n  font-size: 10.5px;\n  line-height: 15px;\n}\n\n/* 自动备份的三个开关：选中态用品牌色实心，未选是描边 */\n.dstl-settings-toggle.on {\n  border-color: var(--dsw-alias-brand-primary, #3749a4);\n  background: var(--dsw-alias-brand-primary, #3749a4);\n  color: #fff;\n}\n\n/* 启动时的差异裁决面板：整条任务二选一，不做字段级合并。\n   Absolute rather than fixed: the mask must cover the panel, not the host page. */\n.dstl-diff-mask {\n  position: absolute;\n  inset: 0;\n  z-index: 40;\n  display: flex;\n  align-items: center;\n  justify-content: center;\n  background: rgba(15, 17, 21, 0.24);\n}\n\n.dstl-diff {\n  width: min(560px, calc(100vw - 48px));\n  max-height: min(70vh, 620px);\n  display: flex;\n  flex-direction: column;\n  border: 1px solid var(--dsw-alias-border-l1, #e3e0da);\n  border-radius: 12px;\n  background: var(--dsw-alias-bg-layer-1, #fff);\n  box-shadow: var(--dsw-shadow-pop, 0 16px 40px rgba(15, 17, 21, 0.14));\n}\n\n.dstl-diff-head {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 8px;\n  padding: 10px 12px;\n  border-bottom: 1px solid var(--dsw-alias-border-l1, #e3e0da);\n}\n\n.dstl-diff-head-title {\n  font-size: 13px;\n  font-weight: 600;\n  color: var(--dsw-alias-label-primary, #1f1f1f);\n}\n\n.dstl-diff-list {\n  flex: 1;\n  min-height: 0;\n  overflow-y: auto;\n  padding: 6px 10px;\n}\n\n.dstl-diff-row {\n  display: flex;\n  align-items: center;\n  gap: 8px;\n  padding: 6px 4px;\n  border-bottom: 1px dashed var(--dsw-alias-border-l1, #ece8e2);\n}\n\n.dstl-diff-kind {\n  flex: none;\n  padding: 0 5px;\n  border-radius: 4px;\n  font-size: 10.5px;\n  line-height: 16px;\n}\n\n.dstl-diff-kind-local-only {\n  background: rgba(55, 73, 164, 0.12);\n  color: #3749a4;\n}\n\n.dstl-diff-kind-backup-only {\n  background: rgba(123, 191, 123, 0.18);\n  color: #3d7a3d;\n}\n\n.dstl-diff-kind-changed {\n  background: rgba(217, 142, 43, 0.16);\n  color: #a56618;\n}\n\n.dstl-diff-row-title {\n  flex: 1;\n  min-width: 0;\n  overflow: hidden;\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  font-size: 12.5px;\n  color: var(--dsw-alias-label-primary, #1f1f1f);\n}\n\n.dstl-diff-ver {\n  flex: none;\n  font-size: 10.5px;\n  color: var(--dsw-alias-label-tertiary, #848891);\n  font-variant-numeric: tabular-nums;\n}\n\n.dstl-diff-row-actions {\n  flex: none;\n  display: flex;\n  gap: 4px;\n}\n\n.dstl-diff-foot {\n  display: flex;\n  align-items: center;\n  justify-content: flex-end;\n  gap: 8px;\n  padding: 10px 12px;\n  border-top: 1px solid var(--dsw-alias-border-l1, #e3e0da);\n}\n\n.dstl-settings-mini:hover {\n  background: var(--dsw-alias-interactive-bg-hover, #f2efe9);\n  color: var(--dsw-alias-label-primary, #161616);\n}\n\n.dstl-main {\n  flex: 1;\n  min-width: 0;\n  display: flex;\n  flex-direction: column;\n  overflow: hidden;\n}\n\n.dstl-head{display:flex;align-items:center;gap:8px;padding:11px 10px 9px 12px;flex:none}\n.dstl-ring{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;flex:none}\n.dstl-head-title{flex:1;min-width:0;font-size:14px;font-weight:600;line-height:20px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.dstl-icon-btn{flex:none;width:24px;height:24px;border:none;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary,#6b6b6b);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;padding:0}\n.dstl-icon-btn:hover{background:var(--dsw-alias-interactive-bg-hover,#f2efe9);color:var(--dsw-alias-label-primary,#1f1f1f)}\n.dstl-icon-btn:disabled{opacity:.35;cursor:default;background:transparent}\n.dstl-list{flex:1;min-height:0;overflow-y:auto;padding:0 6px 8px;outline:none;scrollbar-width:thin;scrollbar-color:var(--dsw-alias-border-l2,#d6d0c6) transparent}\n.dstl-list::-webkit-scrollbar{width:8px}\n.dstl-list::-webkit-scrollbar-thumb{background:var(--dsw-alias-border-l2,#d6d0c6);border-radius:4px}\n.dstl-item{position:relative;display:block}\n.dstl-item-in{animation:dstl-item-in .34s cubic-bezier(.2,.8,.2,1) both}\n@keyframes dstl-item-in{from{opacity:0;transform:translateX(-16px)}to{opacity:1;transform:none}}\n/* A row that changed status lands in another section: React rebuilds the node,\n   so a FLIP from the old rect is impossible — a short settle animation on the\n   new node carries the move instead. */\n@keyframes dstl-row-jump{from{transform:translateY(10px);opacity:.35}to{transform:none;opacity:1}}\n.dstl-row-jump{animation:dstl-row-jump .24s cubic-bezier(.2,.8,.2,1)}\n/* Expanding slides in from the left by the same 16px the fold retracts to, so\n   open and close read as one horizontal motion (reference: `.dstl-item-in`). */\n@keyframes dstl-block-in{from{opacity:0;transform:translateX(-16px)}to{opacity:1;transform:none}}\n.dstl-entering{animation:dstl-block-in .34s cubic-bezier(.2,.8,.2,1) both}.dstl-item-out{animation:dstl-item-out .34s cubic-bezier(.2,.8,.2,1) both}\n@keyframes dstl-item-out{from{opacity:1;transform:none}to{opacity:0;transform:translateX(-16px)}}\n.dstl-row{position:relative;display:flex;align-items:center;gap:7px;padding:5px 6px;border-radius:8px;cursor:pointer}\n.dstl-row:hover{background:var(--dsw-alias-interactive-bg-hover,#f2efe9)}\n.dstl-row.dstl-selected{background:var(--dsw-alias-bg-layer-2,#f4f1eb)}\n.dstl-row.dstl-selected:hover{background:var(--dsw-alias-interactive-bg-hover,#f2efe9)}\n.dstl-item-head{margin-top:6px}\n.dstl-item-head:first-child{margin-top:0}\n.dstl-row-head .dstl-title-text{font-size:13.5px;font-weight:600}\n.dstl-row-task .dstl-title-text{color:var(--dsw-alias-label-secondary,#6b6b6b)}\n.dstl-row-card{background:transparent}\n.dstl-status-section{display:flex;align-items:center;gap:6px;padding-top:3px;padding-bottom:3px;padding-right:6px;font-size:11px;line-height:16px;color:var(--dsw-alias-label-secondary,#a39d92);letter-spacing:.03em}\n.dstl-status-section-empty{opacity:.45}\n.dstl-section-box{margin:2px 0 5px;padding:2px 3px 4px;border:1px solid var(--dsw-alias-border-l1,#e3e0da);border-radius:10px;background:var(--dsw-alias-bg-layer-2,#faf9f7);transition:height .24s cubic-bezier(.2,.8,.2,1),padding .24s ease,margin .24s ease,border-width .24s ease,opacity .24s ease,transform .24s cubic-bezier(.2,.8,.2,1)}\n/* A whole status section (title + box) folds as one block, so the four section\n   labels shrink with their boxes instead of popping out of the layout. */\n.dstl-status-block{transition:height .24s cubic-bezier(.2,.8,.2,1),padding .24s ease,margin .24s ease,border-width .24s ease,opacity .24s ease,transform .24s cubic-bezier(.2,.8,.2,1)}\n.dstl-section-box-empty{border-style:dashed;background:transparent}\n.dstl-section-box-drop{outline:2px solid var(--dsw-alias-brand-primary,#d97757);outline-offset:-2px;background:var(--dsw-alias-interactive-bg-hover,#f2efe9)}\n.dstl-status-section-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.dstl-abandoned-dock{flex:none;min-height:0;max-height:40vh;overflow-y:auto;overflow-x:hidden;border-top:1px solid var(--dsw-alias-border-l1,#e3e0da);background:var(--dsw-alias-bg-layer-1,#ffffff);padding:2px 6px 6px;scrollbar-width:thin;scrollbar-color:var(--dsw-alias-border-l2,#d6d0c6) transparent;transition:max-height .26s cubic-bezier(.2,.8,.2,1),opacity .22s ease,transform .26s cubic-bezier(.2,.8,.2,1),padding .22s ease,border-color .22s ease}\n/* Opening the completed dock slides the abandoned one out of the bottom strip\n   (the reference panel does the same); it comes back with its own fold. */\n.dstl-abandoned-hidden{max-height:0 !important;opacity:0;overflow:hidden;padding-top:0;padding-bottom:0;border-top-color:transparent;transform:translateY(12px)}\n.dstl-abandoned-dock.dstl-abandoned-hidden{max-height:0;opacity:0;overflow:hidden;padding-top:0;padding-bottom:0;border-top-color:transparent;transform:translateY(-6px);pointer-events:none}\n.dstl-abandoned-dock-empty{background:transparent}\n.dstl-abandoned-head{position:sticky;top:0;z-index:2;background:var(--dsw-alias-bg-layer-1,#ffffff);margin:0 0 2px;padding:4px 6px}\n.dstl-abandoned-slot{flex:none;width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;margin-top:1px}\n.dstl-abandoned-name{flex:1;min-width:0;display:flex;align-items:center;gap:6px;padding:0;border:none;background:transparent;color:var(--dsw-alias-label-primary,#1f1f1f);font-size:13px;line-height:20px;font-weight:600;text-align:left;cursor:pointer}\n.dstl-abandoned-body{padding:0;transition:height .24s cubic-bezier(.2,.8,.2,1),padding .24s ease,margin .24s ease,border-width .24s ease,opacity .24s ease,transform .24s cubic-bezier(.2,.8,.2,1)}\n.dstl-abandoned-hint{padding:2px 4px 4px;font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary,#a39d92)}\n.dstl-docks{flex:none;display:flex;flex-direction:column;min-height:0}\n.dstl-complete-dock{flex:none;min-height:0;max-height:0;overflow:hidden;padding:0 6px;opacity:0;transform:translateY(8px);border-top:1px solid transparent;background:var(--dsw-alias-bg-layer-1,#ffffff);transition:max-height .26s cubic-bezier(.2,.8,.2,1),padding .26s ease,opacity .2s ease,transform .26s cubic-bezier(.2,.8,.2,1),border-color .2s ease}\n.dstl-complete-dock.dstl-complete-revealed{max-height:220px;padding:2px 6px 6px;opacity:1;transform:none;border-top-color:var(--dsw-alias-border-l1,#e3e0da)}\n.dstl-complete-dock.dstl-complete-open{max-height:50vh;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--dsw-alias-border-l2,#d6d0c6) transparent}\n.dstl-complete-body{padding:0}\n.dstl-row-card[draggable=\"true\"]{cursor:grab}\n.dstl-row-card.dstl-dragging{opacity:.45}\n/* Drag feedback follows the workspace panel: no insertion line — rows reorder\n   live (FLIP, driven from JS) and the dragged row just dims. A sidebar bucket\n   only fades its background while a row hovers over it. */\n.dstl-row.dstl-dragging{opacity:.45;cursor:grabbing}\n.dstl-side-row.dstl-side-drop,.dstl-side-group-row.dstl-side-drop{background:var(--dsw-alias-bg-layer-2,#f2efe9);outline:1px dashed var(--dsw-alias-border-l2,#d6d0c6);outline-offset:-1px}\n.dstl-group-count{flex:none;margin-top:2px;font-size:11px;line-height:16px;color:var(--dsw-alias-label-secondary,#a39d92);font-variant-numeric:tabular-nums;transition:opacity .12s ease}\n.dstl-row:hover .dstl-group-count,.dstl-row:focus-within .dstl-group-count{opacity:0}\n.dstl-row-caret{flex:none;width:14px;height:16px;margin-top:2px;padding:0;border:none;border-radius:4px;background:transparent;color:var(--dsw-alias-label-secondary,#a39d92);display:inline-flex;align-items:center;justify-content:center;cursor:pointer}\n.dstl-row-caret:hover{color:var(--dsw-alias-label-primary,#1f1f1f)}\n.dstl-row-caret-empty{cursor:default}\n.dstl-resizer{position:absolute;top:0;right:0;bottom:0;z-index:2;width:9px;cursor:col-resize;touch-action:none}\n.dstl-resizer::after{content:\"\";position:absolute;top:50%;right:2px;transform:translateY(-50%);width:3px;height:42px;border-radius:2px;background:var(--dsw-alias-brand-primary,#d97757);opacity:0;transition:opacity .12s ease}\n.dstl-resizer:hover::after,.dstl-resizer[data-dragging]::after{opacity:1}\n.dstl-status-slot{position:relative;flex:none;width:40px;min-height:20px;display:inline-flex;align-items:center;justify-content:center}\n.dstl-marker-arrow{transform-origin:20px 15px;transform:translateX(0) rotate(0deg);transition:transform .4s cubic-bezier(.3,.9,.4,1)}\n.dstl-marker-open .dstl-marker-arrow{transform:rotate(180deg)}\n.dstl-row:hover .dstl-status .dstl-marker-arrow{transform:translateX(0) rotate(90deg)}\n.dstl-marker-arrow-scale{transform-origin:20px 3px;transform:scale(.7);transition:transform .4s cubic-bezier(.3,.9,.4,1)}\n.dstl-row:hover .dstl-status .dstl-marker-arrow-scale{transform:scale(1.9)}\n.dstl-marker-arrow-squash{transform-origin:20px 0px;transform:scaleY(1);transition:transform .4s cubic-bezier(.3,.9,.4,1)}\n.dstl-row:hover .dstl-status .dstl-marker-arrow-squash{transform:scaleY(.55)}\n.dstl-marker-arrow-mini{opacity:0;transition:opacity .3s ease}\n.dstl-row:hover .dstl-status .dstl-marker-arrow-mini{opacity:1}\n.dstl-side-row:hover .dstl-side-ring-btn .dstl-marker-arrow,.dstl-side-group-row:hover .dstl-side-ring-btn .dstl-marker-arrow{transform:translateX(0) rotate(90deg)}\n.dstl-side-row:hover .dstl-side-ring-btn .dstl-marker-arrow-scale,.dstl-side-group-row:hover .dstl-side-ring-btn .dstl-marker-arrow-scale{transform:scale(1.9)}\n.dstl-side-row:hover .dstl-side-ring-btn .dstl-marker-arrow-squash,.dstl-side-group-row:hover .dstl-side-ring-btn .dstl-marker-arrow-squash{transform:scaleY(.55)}\n.dstl-side-row:hover .dstl-side-ring-btn .dstl-marker-arrow-mini,.dstl-side-group-row:hover .dstl-side-ring-btn .dstl-marker-arrow-mini{opacity:1}\n/* Active row: the fold arrow stays turned right as the selection cue, and it\n   also stays in its expanded (largest) shape — moving the mouse away must not\n   shrink it, otherwise the row looks deselected again. */\n.dstl-side-row.dstl-side-on .dstl-side-ring-btn .dstl-marker-arrow,.dstl-side-group-row.dstl-side-on .dstl-side-ring-btn .dstl-marker-arrow{transform:translateX(0) rotate(90deg)}\n.dstl-side-row.dstl-side-on .dstl-side-ring-btn .dstl-marker-arrow-scale,.dstl-side-group-row.dstl-side-on .dstl-side-ring-btn .dstl-marker-arrow-scale{transform:scale(1.9)}\n.dstl-side-row.dstl-side-on .dstl-side-ring-btn .dstl-marker-arrow-squash,.dstl-side-group-row.dstl-side-on .dstl-side-ring-btn .dstl-marker-arrow-squash{transform:scaleY(.55)}\n.dstl-side-row.dstl-side-on .dstl-side-ring-btn .dstl-marker-arrow-mini,.dstl-side-group-row.dstl-side-on .dstl-side-ring-btn .dstl-marker-arrow-mini{opacity:1}\n.dstl-block-dot{position:absolute;right:-1px;top:-1px;width:7px;height:7px;border-radius:50%;background:var(--dsw-alias-state-error-primary,#c0392b);box-shadow:0 0 0 1.5px var(--dsw-alias-bg-layer-1,#ffffff)}\n.dstl-focus-mark{flex:none;display:inline-flex;align-items:center;margin-top:4px;color:var(--dsw-alias-brand-primary,#d97757)}\n.dstl-icon-on{color:var(--dsw-alias-brand-primary,#d97757)}\n.dstl-toggle{position:relative;display:inline-flex;width:12px;height:12px;align-items:center;justify-content:center}\n.dstl-toggle-glyph{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;transition:opacity .18s ease,transform .18s cubic-bezier(.2,.8,.2,1)}\n.dstl-toggle .dstl-toggle-pause{opacity:1;transform:rotate(0deg) scale(1)}\n.dstl-toggle .dstl-toggle-play{opacity:0;transform:rotate(-90deg) scale(.45)}\n.dstl-toggle.dstl-toggle-paused .dstl-toggle-pause{opacity:0;transform:rotate(90deg) scale(.45)}\n.dstl-toggle.dstl-toggle-paused .dstl-toggle-play{opacity:1;transform:rotate(0deg) scale(1)}\n.dstl-row.dstl-paused{opacity:.5}\n.dstl-row.dstl-paused .dstl-title-text{text-decoration:line-through;text-decoration-color:var(--dsw-alias-label-tertiary,#a39d92)}\n.dstl-status{flex:none;width:40px;min-height:20px;margin-top:0;padding:0;border:none;border-radius:50%;background:transparent;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box}\n.dstl-status[aria-disabled=\"true\"]{cursor:default}\n.dstl-marker-enter{transform-origin:8px 8px;animation:dstl-marker-spin 1s ease-out}\n@keyframes dstl-marker-spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}\n.dstl-marker-sweep{stroke-dasharray:var(--dstl-arc,40) var(--dstl-arc,40);animation:dstl-marker-fill 1s ease-out}\n@keyframes dstl-marker-fill{from{stroke-dasharray:0 var(--dstl-arc,40)}}\n.dstl-marker-exit{transform-origin:8px 8px;animation:dstl-marker-spin-out 1s ease-in}\n@keyframes dstl-marker-spin-out{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}\n.dstl-marker-exit-sweep{stroke-dasharray:var(--dstl-arc,40) var(--dstl-arc,40);animation:dstl-marker-fill-out 1s ease-in}\n@keyframes dstl-marker-fill-out{from{stroke-dasharray:var(--dstl-arc,40) var(--dstl-arc,40)}to{stroke-dasharray:0 var(--dstl-arc,40)}}\n@media (prefers-reduced-motion: reduce){.dstl-marker-enter,.dstl-marker-sweep,.dstl-marker-exit,.dstl-marker-exit-sweep,.dstl-item-in,.dstl-item-out{animation:none}.dstl-row-actions,.dstl-marker-arrow,.dstl-section-box,.dstl-complete-dock{transition:none}}\n.dstl-row-card .dstl-status-slot{margin-right:-11px}\n.dstl-abandoned-root .dstl-title{margin-left:-11px;transition:transform .2s ease,margin-left .2s ease}\n.dstl-abandoned-sub .dstl-status-slot{margin-right:-11px}\n.dstl-abandoned-kids{overflow:hidden;transition:height .24s cubic-bezier(.2,.8,.2,1),margin .24s ease,opacity .24s ease,transform .24s cubic-bezier(.2,.8,.2,1)}\n.dstl-title{flex:1;min-width:0;display:flex;align-items:center;gap:4px;padding:0;border:none;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer;transition:transform .2s ease}\n.dstl-row-head .dstl-title{margin-left:-11px;transition:transform .2s ease,margin-left .2s ease}\n.dstl-row-head .dstl-abandoned-name{margin-left:-11px;transition:transform .2s ease}\n.dstl-row-head:hover .dstl-title{margin-left:6px}\n.dstl-row-head:hover .dstl-abandoned-name{transform:translateX(17px)}\n.dstl-abandoned-root:hover .dstl-title{margin-left:6px}\n.dstl-title-text{font-size:13px;line-height:20px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.dstl-title-done .dstl-title-text{color:var(--dsw-alias-label-secondary,#8a857c);text-decoration:line-through}\n.dstl-caret{flex:none;color:var(--dsw-alias-label-secondary,#a39d92)}\n.dstl-row-actions{flex:none;display:flex;align-items:center;gap:1px;max-width:0;margin-left:0;overflow:hidden;opacity:0;transition:max-width .18s cubic-bezier(.2,.8,.2,1),opacity .12s ease,margin-left .18s ease}\n.dstl-row:hover .dstl-row-actions,.dstl-row:focus-within .dstl-row-actions{opacity:1;max-width:170px;margin-left:4px}\n.dstl-row-actions .dstl-icon-btn{width:22px;height:22px}\n.dstl-row-actions .dstl-icon-btn:disabled{opacity:.3;cursor:default;background:transparent}\n.dstl-icon-btn.dstl-danger{color:var(--dsw-alias-state-error-primary,#c0392b);background:rgba(217,48,37,.08);width:26px}\n.dstl-row.dstl-renaming{cursor:default}\n.dstl-inline-form{flex:1;min-width:0;display:flex;align-items:center;gap:6px}\n.dstl-input{flex:1;min-width:0;border:1px solid var(--dsw-alias-border-l1,#e3e0da);border-radius:7px;background:var(--dsw-alias-bg-base,#fff);color:inherit;font:inherit;font-size:13px;padding:4px 8px;outline:none}\n.dstl-input:focus{border-color:var(--dsw-alias-brand-primary,#d97757)}\n.dstl-btn{flex:none;border:1px solid var(--dsw-alias-border-l1,#e3e0da);border-radius:7px;background:var(--dsw-alias-bg-layer-1,#fff);color:inherit;font:inherit;font-size:12px;padding:4px 8px;cursor:pointer}\n.dstl-btn:hover{background:var(--dsw-alias-interactive-bg-hover,#f2efe9)}\n.dstl-btn.dstl-primary{background:var(--dsw-alias-brand-primary,#d97757);border-color:var(--dsw-alias-brand-primary,#d97757);color:#ffffff}\n.dstl-notes{display:flex;align-items:flex-start;gap:4px;margin:0 8px 4px 29px;padding:5px 8px;border-left:2px solid var(--dsw-alias-border-l1,#e3e0da);font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary,#6b6b6b)}\n.dstl-notes-text{flex:1;min-width:0;margin:0;white-space:pre-wrap;word-break:break-word}\n.dstl-notes-edit-btn{flex:none;width:20px;height:20px;padding:0;border:none;border-radius:5px;background:transparent;color:var(--dsw-alias-label-tertiary,#a39d92);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;opacity:0;transition:opacity .12s ease}\n.dstl-notes:hover .dstl-notes-edit-btn,.dstl-notes-edit-btn:focus-visible{opacity:1}\n.dstl-notes-edit{display:flex;flex-direction:column;gap:6px;margin:0 8px 6px 29px;padding:6px 8px;border-left:2px solid var(--dsw-alias-brand-primary,#d97757)}\n.dstl-textarea{width:100%;box-sizing:border-box;resize:vertical;min-height:60px;border:1px solid var(--dsw-alias-border-l1,#e3e0da);border-radius:7px;background:var(--dsw-alias-bg-base,#fff);color:inherit;font:inherit;font-size:12.5px;line-height:18px;padding:6px 8px;outline:none}\n.dstl-textarea:focus{border-color:var(--dsw-alias-brand-primary,#d97757)}\n.dstl-notes-actions{display:flex;justify-content:flex-end;gap:6px}\n.dstl-foot{flex:none;display:flex;align-items:center;gap:6px;padding:7px 12px;border-top:1px solid var(--dsw-alias-border-l1,#e3e0da);font-size:11px;line-height:16px;color:var(--dsw-alias-label-secondary,#8a857c)}\n.dstl-foot-dot{flex:none;width:6px;height:6px;border-radius:50%;background:var(--dsw-alias-state-warn-primary,#d98e2b)}\n.dstl-foot-dot-error{background:var(--dsw-alias-state-error-primary,#c0392b)}\n.dstl-foot-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n.dstl-empty{display:flex;flex-direction:column;gap:4px;padding:22px 14px;text-align:center}\n.dstl-empty-title{font-size:12.5px;color:var(--dsw-alias-label-secondary,#8a857c)}\n.dstl-empty-hint{font-size:11.5px;color:var(--dsw-alias-label-tertiary,#a39d92)}\n.dstl-create{margin-bottom:2px}\n.dstl-row-create{background:var(--dsw-alias-bg-layer-2,#f4f1eb)}\n.dstl-create-slot{color:var(--dsw-alias-label-tertiary,#a39d92)}\n.dstl-external{flex:none;width:6px;height:6px;margin-top:7px;border-radius:50%;background:var(--dsw-alias-state-warn-primary,#d98e2b)}\n.dstl-menu-open .dstl-row-actions{opacity:1;max-width:170px;margin-left:4px}\n.dstl-menu{position:absolute;right:6px;top:calc(100% - 2px);z-index:5;min-width:132px;padding:4px;display:flex;flex-direction:column;gap:1px;background:var(--dsw-alias-bg-layer-1,#ffffff);border:1px solid var(--dsw-alias-border-l1,#e3e0da);border-radius:9px;box-shadow:var(--dsw-shadow-soft, 0 8px 24px rgba(15,17,21,.06))}\n.dstl-menu-item{display:flex;align-items:center;gap:8px;width:100%;padding:6px 8px;border:none;border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary,#1f1f1f);font:inherit;font-size:12.5px;line-height:18px;text-align:left;cursor:pointer;white-space:nowrap}\n.dstl-menu-item:hover{background:var(--dsw-alias-interactive-bg-hover,#f2efe9)}\n.dstl-menu-item.dstl-menu-on{color:var(--dsw-alias-brand-primary,#d97757)}\n.dstl-menu-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}\n\n/* ---- app-specific additions (not in the reference plugin) ---- */\n\n.dstl-tabs{flex:none;display:flex;gap:4px;padding:0 10px 8px}\n.dstl-tab{flex:none;padding:4px 10px;border:1px solid var(--dsw-alias-border-l1,#e3e0da);border-radius:999px;background:var(--dsw-alias-bg-layer-1,#fff);color:var(--dsw-alias-label-secondary,#6b6b6b);font:inherit;font-size:12px;line-height:16px;cursor:pointer}\n.dstl-tab:hover{background:var(--dsw-alias-interactive-bg-hover,#f2efe9)}\n.dstl-tab.dstl-tab-on{background:var(--dsw-alias-brand-primary,#d97757);border-color:var(--dsw-alias-brand-primary,#d97757);color:#fff}\n.dstl-tab-count{margin-left:4px;font-variant-numeric:tabular-nums;opacity:.75}\n\n.dstl-group{margin:2px 0 8px;border:1px solid var(--dsw-alias-border-l1,#e3e0da);border-radius:12px;padding:2px 3px 4px;background:var(--dsw-alias-bg-layer-2,#faf9f7)}\n.dstl-row-notes-wrap{display:block}\n\n.dstl-cat-ring{flex:none;display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;opacity:.95}\n.dstl-cat-ring svg{width:18px;height:18px}\n.dstl-badge{flex:none;padding:0 5px;border-radius:4px;font-size:10.5px;line-height:15px;letter-spacing:.02em;color:var(--dsw-alias-label-secondary,#6b6b6b);background:var(--dsw-alias-bg-layer-2,#f4f1eb);border:1px solid var(--dsw-alias-border-l1,#e3e0da)}\n.dstl-badge-daily{color:#3f7d4a;border-color:#bcd8bf;background:#eef6ee}\n.dstl-badge-monthly{color:#3f5f8a;border-color:#c2d2e6;background:#eef2f8}\n.dstl-badge-deadline{color:#a35a1f;border-color:#e6cfb8;background:#fbf1e6}\n.dstl-badge-due{color:#a03a2f;border-color:#eec4bd;background:#fbeae7}\n\n.dstl-deadline-hint{flex:none;font-size:11px;line-height:16px;color:var(--dsw-alias-label-tertiary,#a39d92);font-variant-numeric:tabular-nums}\n.dstl-deadline-hint.dstl-overdue{color:var(--dsw-alias-state-error-primary,#c0392b);font-weight:600}\n.dstl-row.dstl-overdue .dstl-title-text{color:var(--dsw-alias-state-error-primary,#c0392b)}\n\n.dstl-composer{flex:none;display:flex;align-items:center;gap:6px;padding:0 10px 8px}\n.dstl-composer .dstl-input{font-size:13px;padding:7px 10px}\n.dstl-composer .dstl-btn{padding:7px 12px}\n\n.dstl-empty-panel{display:flex;flex-direction:column;align-items:center;gap:6px;padding:44px 16px;text-align:center}\n\n/* ---- DSH plugin shell: the right-Sidebar tab slot ---- */\n.dstl-todo-tab{height:100%;min-height:0;display:flex;flex-direction:column;background:var(--dsw-alias-bg-layer-1,#ffffff)}\n.dstl-todo-tab>.dstl-app{flex:1;min-height:0;height:auto}\n.dstl-todo-tab-title{display:inline-flex;align-items:center;gap:6px;min-width:0}\n.dstl-todo-header-btn{flex:none;width:28px;height:28px;padding:0;border:none;border-radius:7px;background:transparent;color:var(--dsw-alias-label-secondary,#61666b);cursor:pointer;display:inline-flex;align-items:center;justify-content:center}\n.dstl-todo-header-btn:hover{background:var(--dsw-alias-interactive-bg-hover,#f2f4f7);color:var(--dsw-alias-label-primary,#0f1115)}\n/* two-step abandon: the armed state turns the trash button into a red\n   confirm target whose ring drains over the 4s window. */\n.dstl-icon-btn.dstl-danger.dstl-confirming{background:var(--dsw-alias-state-error-primary,#c0392b);color:#ffffff;width:26px}\n.dstl-icon-btn.dstl-danger.dstl-confirming:hover{background:var(--dsw-alias-state-error-primary,#c0392b);color:#ffffff}\n.dstl-confirm-arc{animation:dstl-confirm-countdown 4s linear forwards}\n@keyframes dstl-confirm-countdown{from{stroke-dashoffset:0}to{stroke-dashoffset:39}}";
-// projects/抱怨先生的待办列表/plugin/src/client/index.jsx
+// plugin/src/ui/styles-text.js
+var styles_text_default = "﻿/* Task panel styles — migrated from DSH任务系统重建计划/client.js (CSS array, lines 227-398).\n   Only the outer shell changes: the floating .dstl-panel becomes a full-page .dstl-app.\n   Every rule keeps its --dsw-* variable plus the original hex fallback, so the app\n   renders correctly without a DSH theme host. */\n\n/* Theme values come from the host; every rule below keeps its hex fallback, so\n   the panel stays readable even where a token is missing. Nothing is declared\n   on :root and no rule targets html/body: an injected stylesheet must not\n   repaint the host application. */\n\n.dstl-app,\n.dstl-app * {\n  box-sizing: border-box;\n}\n\n/* Main-column host: the panel keeps its own two-column shell, this only gives it\n   a full-height box inside the main slot (the Sidebar tab uses .dstl-todo-tab). */\n.dstl-main-page {\n  height: 100%;\n  min-height: 0;\n  display: flex;\n  flex-direction: column;\n  overflow: hidden;\n  background: var(--dsw-alias-bg-base, #ffffff);\n}\n\n/* shell: two columns — a fixed navigation rail on the left, the task list on\n   the right. */\n.dstl-app {\n  position: relative;\n  height: 100%;\n  min-width: 0;\n  display: flex;\n  flex-direction: row;\n  background: var(--dsw-alias-bg-layer-1, #ffffff);\n  font-family: var(--dsw-font-family, \"Microsoft YaHei\", \"PingFang SC\", system-ui, sans-serif);\n  color: var(--dsw-alias-label-primary, #1f1f1f);\n  user-select: none;\n  overflow: hidden;\n}\n\n.dstl-sidebar {\n  flex: none;\n  width: 208px;\n  display: flex;\n  flex-direction: column;\n  gap: 6px;\n  padding: 10px 5px 8px;\n  border-right: 1px solid var(--dsw-alias-border-l1, #e3e0da);\n  background: var(--dsw-alias-bg-layer-2, #faf9f7);\n  overflow: hidden;\n}\n\n.dstl-side-head {\n  display: flex;\n  align-items: center;\n  gap: 6px;\n  padding: 0 4px 6px;\n}\n\n.dstl-side-title {\n  font-size: 13px;\n  font-weight: 600;\n  color: var(--dsw-alias-label-primary, #1f1f1f);\n  white-space: nowrap;\n  overflow: hidden;\n  text-overflow: ellipsis;\n}\n\n.dstl-side-tabs {\n  display: flex;\n  flex-direction: column;\n  gap: 0;\n}\n\n.dstl-side-row {\n  display: flex;\n  align-items: center;\n  gap: 7px;\n  padding: 2px 5px;\n  border-radius: 8px;\n}\n\n.dstl-side-row:hover {\n  background: var(--dsw-alias-interactive-bg-hover, #f2efe9);\n}\n\n/* The active row is marked by the marker arrow turned right (see the marker\n   rules at the bottom) instead of a filled block, so it keeps the plain\n   background and only deepens the label colour. */\n.dstl-side-row.dstl-side-on {\n  background: transparent;\n}\n\n.dstl-side-row.dstl-side-on .dstl-side-label {\n  color: var(--dsw-alias-label-primary, #1f1f1f);\n}\n\n/* Same left-right slide as a foldable parent row's title (`.dstl-row-head\n   .dstl-title`): the label tucks 11px under the ring at rest, then steps right\n   17px whenever the ring's fold arrow turns and grows — on hover and while the\n   row is the active one, since the arrow stays expanded there. */\n.dstl-side-row:hover .dstl-side-label,\n.dstl-side-row.dstl-side-on .dstl-side-label {\n  margin-left: 6px;\n}\n\n.dstl-side-row.dstl-side-on .dstl-side-count {\n  color: var(--dsw-alias-label-secondary, #656871);\n  opacity: 1;\n}\n\n.dstl-side-ring-btn {\n  flex: none;\n  display: inline-flex;\n  align-items: center;\n  justify-content: center;\n  padding: 0;\n  border: none;\n  background: transparent;\n  cursor: pointer;\n}\n\n/* Marker sizes, biggest at the root row and smallest at a group. Overriding\n   width/height only scales the same SVG, so every animation stays identical. */\n.dstl-side-ring-btn svg {\n  width: 44px;\n  height: 37px;\n}\n.dstl-side-root .dstl-side-ring-btn svg {\n  width: 48px;\n  height: 41px;\n}\n\n.dstl-side-label {\n  flex: 1;\n  min-width: 0;\n  padding: 0;\n  border: none;\n  background: transparent;\n  color: var(--dsw-alias-label-secondary, #656871);\n  font: inherit;\n  font-size: 13px;\n  line-height: 18px;\n  text-align: left;\n  cursor: pointer;\n  margin-left: -11px;\n  transition: margin-left .2s ease;\n  white-space: nowrap;\n  overflow: hidden;\n  text-overflow: ellipsis;\n}\n\n.dstl-side-children {\n  display: flex;\n  flex-direction: column;\n  gap: 2px;\n  margin-left: 14px;\n  padding-left: 6px;\n}\n\n.dstl-side-branch {\n  display: flex;\n  flex-direction: column;\n  gap: 1px;\n}\n\n.dstl-side-groups {\n  display: flex;\n  flex-direction: column;\n  gap: 1px;\n  margin: 1px 0 3px 22px;\n  padding-left: 8px;\n  /* Same fold as a parent row's sections: height/margins animate, content slides\n     out to the left, so opening and closing read as one horizontal motion. */\n  transition: height .24s cubic-bezier(.2,.8,.2,1), margin .24s ease, opacity .24s ease, transform .24s cubic-bezier(.2,.8,.2,1);\n}\n\n.dstl-side-group-row {\n  display: flex;\n  align-items: center;\n  gap: 5px;\n  width: 100%;\n  padding: 1px 5px;\n  border: none;\n  border-radius: 6px;\n  background: transparent;\n  color: var(--dsw-alias-label-tertiary, #848891);\n  font: inherit;\n  font-size: 12.5px;\n  line-height: 17px;\n  text-align: left;\n  cursor: pointer;\n}\n\n.dstl-side-group-row:hover {\n  background: var(--dsw-alias-interactive-bg-hover, #f2efe9);\n  color: var(--dsw-alias-label-primary, #1f1f1f);\n}\n\n.dstl-side-group-row.dstl-side-on {\n  background: transparent;\n  color: var(--dsw-alias-label-primary, #1f1f1f);\n}\n\n.dstl-side-group-name {\n  flex: 1;\n  min-width: 0;\n  white-space: nowrap;\n  overflow: hidden;\n  text-overflow: ellipsis;\n}\n\n.dstl-side-group-count {\n  flex: none;\n  font-size: 10.5px;\n  line-height: 16px;\n  font-variant-numeric: tabular-nums;\n  opacity: 0.7;\n}\n\n.dstl-side-group-row.dstl-side-on .dstl-side-group-count {\n  color: var(--dsw-alias-label-secondary, #656871);\n  opacity: 1;\n}\n\n/* A group carries the same fold marker as a category, one notch smaller; it has\n   no children, so the arrow only ever means \"selected\" (0deg) or not (90deg). */\n.dstl-side-group-row .dstl-side-ring-btn {\n  width: 34px;\n  height: 29px;\n}\n.dstl-side-group-row .dstl-side-ring-btn svg {\n  width: 34px;\n  height: 29px;\n}\n\n.dstl-side-tab {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 6px;\n  width: 100%;\n  padding: 7px 10px;\n  border: 1px solid transparent;\n  border-radius: 9px;\n  background: transparent;\n  color: var(--dsw-alias-label-secondary, #656871);\n  font: inherit;\n  font-size: 12.5px;\n  line-height: 18px;\n  text-align: left;\n  cursor: pointer;\n}\n\n.dstl-side-tab:hover {\n  background: var(--dsw-alias-interactive-bg-hover, #f2efe9);\n  color: var(--dsw-alias-label-primary, #1f1f1f);\n}\n\n.dstl-side-tab.dstl-side-on {\n  background: var(--dsw-alias-brand-primary, #3749a4);\n  border-color: var(--dsw-alias-brand-primary, #3749a4);\n  color: #ffffff;\n}\n\n.dstl-side-plus{flex:none;width:14px;height:14px;padding:0;border:none;border-radius:4px;background:transparent;color:var(--dsw-alias-label-tertiary,#a39d92);font-size:14px;line-height:13px;text-align:center;cursor:pointer;opacity:.45;transition:opacity .12s ease,background .12s ease,color .12s ease}\n.dstl-side-row:hover .dstl-side-plus,.dstl-side-row.dstl-side-on .dstl-side-plus{opacity:1}\n.dstl-side-plus:hover{background:var(--dsw-alias-border-l1,#e8e4dc);color:var(--dsw-alias-label-primary,#1f1f1f)}\n/* The group composer reuses the task composer, but the sidebar column is only\n   188px wide, so the input takes a full line and the two buttons sit below. */\n.dstl-side-group-new{padding:0;background:transparent}\n.dstl-side-group-new .dstl-inline-form{flex-wrap:wrap;gap:4px;padding:2px 0 4px}\n.dstl-side-group-new .dstl-input{flex:1 1 100%;font-size:12px;padding:3px 6px}\n.dstl-side-group-new .dstl-btn{font-size:11px;padding:2px 8px;line-height:16px}\n/* Rename edits the row in place; same 208px column, so the input takes a full\n   line and the two buttons sit below, exactly like the group composer. */\n.dstl-side-group-edit{padding:2px 5px}\n.dstl-side-group-edit .dstl-inline-form{flex-wrap:wrap;gap:4px;padding:2px 0 4px}\n.dstl-side-group-edit .dstl-input{flex:1 1 100%;font-size:12px;padding:3px 6px}\n.dstl-side-group-edit .dstl-btn{font-size:11px;padding:2px 8px;line-height:16px}\n.dstl-side-count {\n  font-size: 11.5px;\n  font-variant-numeric: tabular-nums;\n  opacity: 0.7;\n}\n\n.dstl-side-foot {\n  margin-top: auto;\n  display: flex;\n  flex-direction: column;\n  gap: 6px;\n  padding-top: 8px;\n  border-top: 1px dashed var(--dsw-alias-border-l1, #e3e0da);\n}\n\n.dstl-side-btn {\n  display: flex;\n  align-items: center;\n  gap: 6px;\n  width: 100%;\n  padding: 6px 10px;\n  border: 1px solid var(--dsw-alias-border-l1, #e3e0da);\n  border-radius: 9px;\n  background: var(--dsw-alias-bg-layer-1, #fff);\n  color: var(--dsw-alias-label-secondary, #656871);\n  font: inherit;\n  font-size: 12px;\n  line-height: 18px;\n  text-align: left;\n  cursor: pointer;\n}\n\n.dstl-side-btn:hover {\n  background: var(--dsw-alias-interactive-bg-hover, #f2efe9);\n  color: var(--dsw-alias-label-primary, #1f1f1f);\n}\n\n.dstl-settings {\n  display: flex;\n  flex-direction: column;\n  gap: 2px;\n  padding: 4px;\n  border: 1px solid var(--dsw-alias-border-l1, #e3e0da);\n  border-radius: 9px;\n  background: var(--dsw-alias-bg-layer-1, #fff);\n  box-shadow: var(--dsw-shadow-soft, 0 8px 24px rgba(15, 17, 21, 0.06));\n}\n\n.dstl-settings-item {\n  padding: 6px 8px;\n  border: none;\n  border-radius: 6px;\n  background: transparent;\n  color: var(--dsw-alias-label-primary, #1f1f1f);\n  font: inherit;\n  font-size: 12px;\n  line-height: 18px;\n  text-align: left;\n  cursor: pointer;\n  white-space: nowrap;\n}\n\n.dstl-settings-item:hover {\n  background: var(--dsw-alias-interactive-bg-hover, #f2efe9);\n}\n\n.dstl-settings-sep {\n  height: 1px;\n  margin: 3px 2px;\n  background: var(--dsw-alias-border-l1, #e3e0da);\n}\n\n.dstl-settings-field {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 6px;\n  padding: 4px 8px;\n}\n\n.dstl-settings-label {\n  flex: 1;\n  min-width: 0;\n  font-size: 11px;\n  line-height: 16px;\n  color: var(--dsw-alias-label-tertiary, #848891);\n  display: inline-flex;\n  align-items: center;\n  gap: 4px;\n}\n\n.dstl-settings-warn {\n  padding: 0 4px;\n  border-radius: 4px;\n  background: rgba(192, 57, 43, 0.12);\n  color: #c0392b;\n  font-size: 10px;\n  line-height: 14px;\n}\n\n.dstl-settings-path {\n  grid-column: 1 / 2;\n  font-size: 11px;\n  line-height: 15px;\n  color: var(--dsw-alias-label-secondary, #656871);\n  white-space: nowrap;\n  overflow: hidden;\n  text-overflow: ellipsis;\n  direction: rtl;\n  text-align: left;\n}\n\n.dstl-settings-mini {\n  padding: 2px 8px;\n  border: 1px solid var(--dsw-alias-border-l1, #e3e0da);\n  border-radius: 6px;\n  background: var(--dsw-alias-bg-layer-1, #fff);\n  color: var(--dsw-alias-label-secondary, #656871);\n  font: inherit;\n  font-size: 11px;\n  cursor: pointer;\n}\n\n/* 更改 / 默认 并排在同一行的右侧，窄侧栏里也能放下 */\n.dstl-settings-actions {\n  flex: none;\n  display: flex;\n  align-items: center;\n  gap: 4px;\n}\n\n.dstl-settings-actions .dstl-settings-mini {\n  padding: 1px 6px;\n  font-size: 10.5px;\n  line-height: 15px;\n}\n\n/* 自动备份的三个开关：选中态用品牌色实心，未选是描边 */\n.dstl-settings-toggle.on {\n  border-color: var(--dsw-alias-brand-primary, #3749a4);\n  background: var(--dsw-alias-brand-primary, #3749a4);\n  color: #fff;\n}\n\n/* 启动时的差异裁决面板：整条任务二选一，不做字段级合并。\n   Absolute rather than fixed: the mask must cover the panel, not the host page. */\n.dstl-diff-mask {\n  position: absolute;\n  inset: 0;\n  z-index: 40;\n  display: flex;\n  align-items: center;\n  justify-content: center;\n  background: rgba(15, 17, 21, 0.24);\n}\n\n.dstl-diff {\n  width: min(560px, calc(100vw - 48px));\n  max-height: min(70vh, 620px);\n  display: flex;\n  flex-direction: column;\n  border: 1px solid var(--dsw-alias-border-l1, #e3e0da);\n  border-radius: 12px;\n  background: var(--dsw-alias-bg-layer-1, #fff);\n  box-shadow: var(--dsw-shadow-pop, 0 16px 40px rgba(15, 17, 21, 0.14));\n}\n\n.dstl-diff-head {\n  display: flex;\n  align-items: center;\n  justify-content: space-between;\n  gap: 8px;\n  padding: 10px 12px;\n  border-bottom: 1px solid var(--dsw-alias-border-l1, #e3e0da);\n}\n\n.dstl-diff-head-title {\n  font-size: 13px;\n  font-weight: 600;\n  color: var(--dsw-alias-label-primary, #1f1f1f);\n}\n\n.dstl-diff-list {\n  flex: 1;\n  min-height: 0;\n  overflow-y: auto;\n  padding: 6px 10px;\n}\n\n.dstl-diff-row {\n  display: flex;\n  align-items: center;\n  gap: 8px;\n  padding: 6px 4px;\n  border-bottom: 1px dashed var(--dsw-alias-border-l1, #ece8e2);\n}\n\n.dstl-diff-kind {\n  flex: none;\n  padding: 0 5px;\n  border-radius: 4px;\n  font-size: 10.5px;\n  line-height: 16px;\n}\n\n.dstl-diff-kind-local-only {\n  background: rgba(55, 73, 164, 0.12);\n  color: #3749a4;\n}\n\n.dstl-diff-kind-backup-only {\n  background: rgba(123, 191, 123, 0.18);\n  color: #3d7a3d;\n}\n\n.dstl-diff-kind-changed {\n  background: rgba(217, 142, 43, 0.16);\n  color: #a56618;\n}\n\n.dstl-diff-row-title {\n  flex: 1;\n  min-width: 0;\n  overflow: hidden;\n  white-space: nowrap;\n  text-overflow: ellipsis;\n  font-size: 12.5px;\n  color: var(--dsw-alias-label-primary, #1f1f1f);\n}\n\n.dstl-diff-ver {\n  flex: none;\n  font-size: 10.5px;\n  color: var(--dsw-alias-label-tertiary, #848891);\n  font-variant-numeric: tabular-nums;\n}\n\n.dstl-diff-row-actions {\n  flex: none;\n  display: flex;\n  gap: 4px;\n}\n\n.dstl-diff-foot {\n  display: flex;\n  align-items: center;\n  justify-content: flex-end;\n  gap: 8px;\n  padding: 10px 12px;\n  border-top: 1px solid var(--dsw-alias-border-l1, #e3e0da);\n}\n\n.dstl-settings-mini:hover {\n  background: var(--dsw-alias-interactive-bg-hover, #f2efe9);\n  color: var(--dsw-alias-label-primary, #161616);\n}\n\n.dstl-main {\n  flex: 1;\n  min-width: 0;\n  display: flex;\n  flex-direction: column;\n  overflow: hidden;\n}\n\n.dstl-head{display:flex;align-items:center;gap:8px;padding:11px 10px 9px 12px;flex:none}\n.dstl-ring{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;flex:none}\n.dstl-head-title{flex:1;min-width:0;font-size:14px;font-weight:600;line-height:20px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.dstl-icon-btn{flex:none;width:24px;height:24px;border:none;border-radius:6px;background:transparent;color:var(--dsw-alias-label-secondary,#6b6b6b);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;padding:0}\n.dstl-icon-btn:hover{background:var(--dsw-alias-interactive-bg-hover,#f2efe9);color:var(--dsw-alias-label-primary,#1f1f1f)}\n.dstl-icon-btn:disabled{opacity:.35;cursor:default;background:transparent}\n.dstl-list{flex:1;min-height:0;overflow-y:auto;padding:0 6px 8px;outline:none;scrollbar-width:thin;scrollbar-color:var(--dsw-alias-border-l2,#d6d0c6) transparent}\n.dstl-list::-webkit-scrollbar{width:8px}\n.dstl-list::-webkit-scrollbar-thumb{background:var(--dsw-alias-border-l2,#d6d0c6);border-radius:4px}\n.dstl-item{position:relative;display:block}\n.dstl-item-in{animation:dstl-item-in .34s cubic-bezier(.2,.8,.2,1) both}\n@keyframes dstl-item-in{from{opacity:0;transform:translateX(-16px)}to{opacity:1;transform:none}}\n/* A row that changed status lands in another section: React rebuilds the node,\n   so a FLIP from the old rect is impossible — a short settle animation on the\n   new node carries the move instead. */\n@keyframes dstl-row-jump{from{transform:translateY(10px);opacity:.35}to{transform:none;opacity:1}}\n.dstl-row-jump{animation:dstl-row-jump .24s cubic-bezier(.2,.8,.2,1)}\n/* Expanding slides in from the left by the same 16px the fold retracts to, so\n   open and close read as one horizontal motion (reference: `.dstl-item-in`). */\n@keyframes dstl-block-in{from{opacity:0;transform:translateX(-16px)}to{opacity:1;transform:none}}\n.dstl-entering{animation:dstl-block-in .34s cubic-bezier(.2,.8,.2,1) both}.dstl-item-out{animation:dstl-item-out .34s cubic-bezier(.2,.8,.2,1) both}\n@keyframes dstl-item-out{from{opacity:1;transform:none}to{opacity:0;transform:translateX(-16px)}}\n.dstl-row{position:relative;display:flex;align-items:center;gap:7px;padding:5px 6px;border-radius:8px;cursor:pointer}\n.dstl-row:hover{background:var(--dsw-alias-interactive-bg-hover,#f2efe9)}\n.dstl-row.dstl-selected{background:var(--dsw-alias-bg-layer-2,#f4f1eb)}\n.dstl-row.dstl-selected:hover{background:var(--dsw-alias-interactive-bg-hover,#f2efe9)}\n.dstl-item-head{margin-top:6px}\n.dstl-item-head:first-child{margin-top:0}\n.dstl-row-head .dstl-title-text{font-size:13.5px;font-weight:600}\n.dstl-row-task .dstl-title-text{color:var(--dsw-alias-label-secondary,#6b6b6b)}\n.dstl-row-card{background:transparent}\n.dstl-status-section{display:flex;align-items:center;gap:6px;padding-top:3px;padding-bottom:3px;padding-right:6px;font-size:11px;line-height:16px;color:var(--dsw-alias-label-secondary,#a39d92);letter-spacing:.03em}\n.dstl-status-section-empty{opacity:.45}\n.dstl-section-box{margin:2px 0 5px;padding:2px 3px 4px;border:1px solid var(--dsw-alias-border-l1,#e3e0da);border-radius:10px;background:var(--dsw-alias-bg-layer-2,#faf9f7);transition:height .24s cubic-bezier(.2,.8,.2,1),padding .24s ease,margin .24s ease,border-width .24s ease,opacity .24s ease,transform .24s cubic-bezier(.2,.8,.2,1)}\n/* A whole status section (title + box) folds as one block, so the four section\n   labels shrink with their boxes instead of popping out of the layout. */\n.dstl-status-block{transition:height .24s cubic-bezier(.2,.8,.2,1),padding .24s ease,margin .24s ease,border-width .24s ease,opacity .24s ease,transform .24s cubic-bezier(.2,.8,.2,1)}\n.dstl-section-box-empty{border-style:dashed;background:transparent}\n.dstl-section-box-drop{outline:2px solid var(--dsw-alias-brand-primary,#d97757);outline-offset:-2px;background:var(--dsw-alias-interactive-bg-hover,#f2efe9)}\n.dstl-status-section-name{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.dstl-abandoned-dock{flex:none;min-height:0;max-height:40vh;overflow-y:auto;overflow-x:hidden;border-top:1px solid var(--dsw-alias-border-l1,#e3e0da);background:var(--dsw-alias-bg-layer-1,#ffffff);padding:2px 6px 6px;scrollbar-width:thin;scrollbar-color:var(--dsw-alias-border-l2,#d6d0c6) transparent;transition:max-height .26s cubic-bezier(.2,.8,.2,1),opacity .22s ease,transform .26s cubic-bezier(.2,.8,.2,1),padding .22s ease,border-color .22s ease}\n/* Opening the completed dock slides the abandoned one out of the bottom strip\n   (the reference panel does the same); it comes back with its own fold. */\n.dstl-abandoned-hidden{max-height:0 !important;opacity:0;overflow:hidden;padding-top:0;padding-bottom:0;border-top-color:transparent;transform:translateY(12px)}\n.dstl-abandoned-dock.dstl-abandoned-hidden{max-height:0;opacity:0;overflow:hidden;padding-top:0;padding-bottom:0;border-top-color:transparent;transform:translateY(-6px);pointer-events:none}\n.dstl-abandoned-dock-empty{background:transparent}\n.dstl-abandoned-head{position:sticky;top:0;z-index:2;background:var(--dsw-alias-bg-layer-1,#ffffff);margin:0 0 2px;padding:4px 6px}\n.dstl-abandoned-slot{flex:none;width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;margin-top:1px}\n.dstl-abandoned-name{flex:1;min-width:0;display:flex;align-items:center;gap:6px;padding:0;border:none;background:transparent;color:var(--dsw-alias-label-primary,#1f1f1f);font-size:13px;line-height:20px;font-weight:600;text-align:left;cursor:pointer}\n.dstl-abandoned-body{padding:0;transition:height .24s cubic-bezier(.2,.8,.2,1),padding .24s ease,margin .24s ease,border-width .24s ease,opacity .24s ease,transform .24s cubic-bezier(.2,.8,.2,1)}\n.dstl-abandoned-hint{padding:2px 4px 4px;font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary,#a39d92)}\n.dstl-docks{flex:none;display:flex;flex-direction:column;min-height:0}\n.dstl-complete-dock{flex:none;min-height:0;max-height:0;overflow:hidden;padding:0 6px;opacity:0;transform:translateY(8px);border-top:1px solid transparent;background:var(--dsw-alias-bg-layer-1,#ffffff);transition:max-height .26s cubic-bezier(.2,.8,.2,1),padding .26s ease,opacity .2s ease,transform .26s cubic-bezier(.2,.8,.2,1),border-color .2s ease}\n.dstl-complete-dock.dstl-complete-revealed{max-height:220px;padding:2px 6px 6px;opacity:1;transform:none;border-top-color:var(--dsw-alias-border-l1,#e3e0da)}\n.dstl-complete-dock.dstl-complete-open{max-height:50vh;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--dsw-alias-border-l2,#d6d0c6) transparent}\n.dstl-complete-body{padding:0}\n.dstl-row-card[draggable=\"true\"]{cursor:grab}\n.dstl-row-card.dstl-dragging{opacity:.45}\n/* Drag feedback follows the workspace panel: no insertion line — rows reorder\n   live (FLIP, driven from JS) and the dragged row just dims. A sidebar bucket\n   only fades its background while a row hovers over it. */\n.dstl-row.dstl-dragging{opacity:.45;cursor:grabbing}\n.dstl-side-row.dstl-side-drop,.dstl-side-group-row.dstl-side-drop{background:var(--dsw-alias-bg-layer-2,#f2efe9);outline:1px dashed var(--dsw-alias-border-l2,#d6d0c6);outline-offset:-1px}\n.dstl-group-count{flex:none;margin-top:2px;font-size:11px;line-height:16px;color:var(--dsw-alias-label-secondary,#a39d92);font-variant-numeric:tabular-nums;transition:opacity .12s ease}\n.dstl-row:hover .dstl-group-count,.dstl-row:focus-within .dstl-group-count{opacity:0}\n.dstl-row-caret{flex:none;width:14px;height:16px;margin-top:2px;padding:0;border:none;border-radius:4px;background:transparent;color:var(--dsw-alias-label-secondary,#a39d92);display:inline-flex;align-items:center;justify-content:center;cursor:pointer}\n.dstl-row-caret:hover{color:var(--dsw-alias-label-primary,#1f1f1f)}\n.dstl-row-caret-empty{cursor:default}\n.dstl-resizer{position:absolute;top:0;right:0;bottom:0;z-index:2;width:9px;cursor:col-resize;touch-action:none}\n.dstl-resizer::after{content:\"\";position:absolute;top:50%;right:2px;transform:translateY(-50%);width:3px;height:42px;border-radius:2px;background:var(--dsw-alias-brand-primary,#d97757);opacity:0;transition:opacity .12s ease}\n.dstl-resizer:hover::after,.dstl-resizer[data-dragging]::after{opacity:1}\n.dstl-status-slot{position:relative;flex:none;width:40px;min-height:20px;display:inline-flex;align-items:center;justify-content:center}\n.dstl-marker-arrow{transform-origin:20px 15px;transform:translateX(0) rotate(0deg);transition:transform .4s cubic-bezier(.3,.9,.4,1)}\n.dstl-marker-open .dstl-marker-arrow{transform:rotate(180deg)}\n.dstl-row:hover .dstl-status .dstl-marker-arrow{transform:translateX(0) rotate(90deg)}\n.dstl-marker-arrow-scale{transform-origin:20px 3px;transform:scale(.7);transition:transform .4s cubic-bezier(.3,.9,.4,1)}\n.dstl-row:hover .dstl-status .dstl-marker-arrow-scale{transform:scale(1.9)}\n.dstl-marker-arrow-squash{transform-origin:20px 0px;transform:scaleY(1);transition:transform .4s cubic-bezier(.3,.9,.4,1)}\n.dstl-row:hover .dstl-status .dstl-marker-arrow-squash{transform:scaleY(.55)}\n.dstl-marker-arrow-mini{opacity:0;transition:opacity .3s ease}\n.dstl-row:hover .dstl-status .dstl-marker-arrow-mini{opacity:1}\n.dstl-side-row:hover .dstl-side-ring-btn .dstl-marker-arrow,.dstl-side-group-row:hover .dstl-side-ring-btn .dstl-marker-arrow{transform:translateX(0) rotate(90deg)}\n.dstl-side-row:hover .dstl-side-ring-btn .dstl-marker-arrow-scale,.dstl-side-group-row:hover .dstl-side-ring-btn .dstl-marker-arrow-scale{transform:scale(1.9)}\n.dstl-side-row:hover .dstl-side-ring-btn .dstl-marker-arrow-squash,.dstl-side-group-row:hover .dstl-side-ring-btn .dstl-marker-arrow-squash{transform:scaleY(.55)}\n.dstl-side-row:hover .dstl-side-ring-btn .dstl-marker-arrow-mini,.dstl-side-group-row:hover .dstl-side-ring-btn .dstl-marker-arrow-mini{opacity:1}\n/* Active row: the fold arrow stays turned right as the selection cue, and it\n   also stays in its expanded (largest) shape — moving the mouse away must not\n   shrink it, otherwise the row looks deselected again. */\n.dstl-side-row.dstl-side-on .dstl-side-ring-btn .dstl-marker-arrow,.dstl-side-group-row.dstl-side-on .dstl-side-ring-btn .dstl-marker-arrow{transform:translateX(0) rotate(90deg)}\n.dstl-side-row.dstl-side-on .dstl-side-ring-btn .dstl-marker-arrow-scale,.dstl-side-group-row.dstl-side-on .dstl-side-ring-btn .dstl-marker-arrow-scale{transform:scale(1.9)}\n.dstl-side-row.dstl-side-on .dstl-side-ring-btn .dstl-marker-arrow-squash,.dstl-side-group-row.dstl-side-on .dstl-side-ring-btn .dstl-marker-arrow-squash{transform:scaleY(.55)}\n.dstl-side-row.dstl-side-on .dstl-side-ring-btn .dstl-marker-arrow-mini,.dstl-side-group-row.dstl-side-on .dstl-side-ring-btn .dstl-marker-arrow-mini{opacity:1}\n.dstl-block-dot{position:absolute;right:-1px;top:-1px;width:7px;height:7px;border-radius:50%;background:var(--dsw-alias-state-error-primary,#c0392b);box-shadow:0 0 0 1.5px var(--dsw-alias-bg-layer-1,#ffffff)}\n.dstl-focus-mark{flex:none;display:inline-flex;align-items:center;margin-top:4px;color:var(--dsw-alias-brand-primary,#d97757)}\n.dstl-icon-on{color:var(--dsw-alias-brand-primary,#d97757)}\n.dstl-toggle{position:relative;display:inline-flex;width:12px;height:12px;align-items:center;justify-content:center}\n.dstl-toggle-glyph{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;transition:opacity .18s ease,transform .18s cubic-bezier(.2,.8,.2,1)}\n.dstl-toggle .dstl-toggle-pause{opacity:1;transform:rotate(0deg) scale(1)}\n.dstl-toggle .dstl-toggle-play{opacity:0;transform:rotate(-90deg) scale(.45)}\n.dstl-toggle.dstl-toggle-paused .dstl-toggle-pause{opacity:0;transform:rotate(90deg) scale(.45)}\n.dstl-toggle.dstl-toggle-paused .dstl-toggle-play{opacity:1;transform:rotate(0deg) scale(1)}\n.dstl-row.dstl-paused{opacity:.5}\n.dstl-row.dstl-paused .dstl-title-text{text-decoration:line-through;text-decoration-color:var(--dsw-alias-label-tertiary,#a39d92)}\n.dstl-status{flex:none;width:40px;min-height:20px;margin-top:0;padding:0;border:none;border-radius:50%;background:transparent;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;box-sizing:border-box}\n.dstl-status[aria-disabled=\"true\"]{cursor:default}\n.dstl-marker-enter{transform-origin:8px 8px;animation:dstl-marker-spin 1s ease-out}\n@keyframes dstl-marker-spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}\n.dstl-marker-sweep{stroke-dasharray:var(--dstl-arc,40) var(--dstl-arc,40);animation:dstl-marker-fill 1s ease-out}\n@keyframes dstl-marker-fill{from{stroke-dasharray:0 var(--dstl-arc,40)}}\n.dstl-marker-exit{transform-origin:8px 8px;animation:dstl-marker-spin-out 1s ease-in}\n@keyframes dstl-marker-spin-out{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}\n.dstl-marker-exit-sweep{stroke-dasharray:var(--dstl-arc,40) var(--dstl-arc,40);animation:dstl-marker-fill-out 1s ease-in}\n@keyframes dstl-marker-fill-out{from{stroke-dasharray:var(--dstl-arc,40) var(--dstl-arc,40)}to{stroke-dasharray:0 var(--dstl-arc,40)}}\n@media (prefers-reduced-motion: reduce){.dstl-marker-enter,.dstl-marker-sweep,.dstl-marker-exit,.dstl-marker-exit-sweep,.dstl-item-in,.dstl-item-out{animation:none}.dstl-row-actions,.dstl-marker-arrow,.dstl-section-box,.dstl-complete-dock{transition:none}}\n.dstl-row-card .dstl-status-slot{margin-right:-11px}\n.dstl-abandoned-root .dstl-title{margin-left:-11px;transition:transform .2s ease,margin-left .2s ease}\n.dstl-abandoned-sub .dstl-status-slot{margin-right:-11px}\n.dstl-abandoned-kids{overflow:hidden;transition:height .24s cubic-bezier(.2,.8,.2,1),margin .24s ease,opacity .24s ease,transform .24s cubic-bezier(.2,.8,.2,1)}\n.dstl-title{flex:1;min-width:0;display:flex;align-items:center;gap:4px;padding:0;border:none;background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer;transition:transform .2s ease}\n.dstl-row-head .dstl-title{margin-left:-11px;transition:transform .2s ease,margin-left .2s ease}\n.dstl-row-head .dstl-abandoned-name{margin-left:-11px;transition:transform .2s ease}\n.dstl-row-head:hover .dstl-title{margin-left:6px}\n.dstl-row-head:hover .dstl-abandoned-name{transform:translateX(17px)}\n.dstl-abandoned-root:hover .dstl-title{margin-left:6px}\n.dstl-title-text{font-size:13px;line-height:20px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n.dstl-title-done .dstl-title-text{color:var(--dsw-alias-label-secondary,#8a857c);text-decoration:line-through}\n.dstl-caret{flex:none;color:var(--dsw-alias-label-secondary,#a39d92)}\n.dstl-row-actions{flex:none;display:flex;align-items:center;gap:1px;max-width:0;margin-left:0;overflow:hidden;opacity:0;transition:max-width .18s cubic-bezier(.2,.8,.2,1),opacity .12s ease,margin-left .18s ease}\n.dstl-row:hover .dstl-row-actions,.dstl-row:focus-within .dstl-row-actions{opacity:1;max-width:170px;margin-left:4px}\n.dstl-row-actions .dstl-icon-btn{width:22px;height:22px}\n.dstl-row-actions .dstl-icon-btn:disabled{opacity:.3;cursor:default;background:transparent}\n.dstl-icon-btn.dstl-danger{color:var(--dsw-alias-state-error-primary,#c0392b);background:rgba(217,48,37,.08);width:26px}\n.dstl-row.dstl-renaming{cursor:default}\n.dstl-inline-form{flex:1;min-width:0;display:flex;align-items:center;gap:6px}\n.dstl-input{flex:1;min-width:0;border:1px solid var(--dsw-alias-border-l1,#e3e0da);border-radius:7px;background:var(--dsw-alias-bg-base,#fff);color:inherit;font:inherit;font-size:13px;padding:4px 8px;outline:none}\n.dstl-input:focus{border-color:var(--dsw-alias-brand-primary,#d97757)}\n.dstl-btn{flex:none;border:1px solid var(--dsw-alias-border-l1,#e3e0da);border-radius:7px;background:var(--dsw-alias-bg-layer-1,#fff);color:inherit;font:inherit;font-size:12px;padding:4px 8px;cursor:pointer}\n.dstl-btn:hover{background:var(--dsw-alias-interactive-bg-hover,#f2efe9)}\n.dstl-btn.dstl-primary{background:var(--dsw-alias-brand-primary,#d97757);border-color:var(--dsw-alias-brand-primary,#d97757);color:#ffffff}\n.dstl-notes{display:flex;align-items:flex-start;gap:4px;margin:0 8px 4px 29px;padding:5px 8px;border-left:2px solid var(--dsw-alias-border-l1,#e3e0da);font-size:12px;line-height:18px;color:var(--dsw-alias-label-secondary,#6b6b6b)}\n.dstl-notes-text{flex:1;min-width:0;margin:0;white-space:pre-wrap;word-break:break-word}\n.dstl-notes-edit-btn{flex:none;width:20px;height:20px;padding:0;border:none;border-radius:5px;background:transparent;color:var(--dsw-alias-label-tertiary,#a39d92);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;opacity:0;transition:opacity .12s ease}\n.dstl-notes:hover .dstl-notes-edit-btn,.dstl-notes-edit-btn:focus-visible{opacity:1}\n.dstl-notes-edit{display:flex;flex-direction:column;gap:6px;margin:0 8px 6px 29px;padding:6px 8px;border-left:2px solid var(--dsw-alias-brand-primary,#d97757)}\n.dstl-textarea{width:100%;box-sizing:border-box;resize:vertical;min-height:60px;border:1px solid var(--dsw-alias-border-l1,#e3e0da);border-radius:7px;background:var(--dsw-alias-bg-base,#fff);color:inherit;font:inherit;font-size:12.5px;line-height:18px;padding:6px 8px;outline:none}\n.dstl-textarea:focus{border-color:var(--dsw-alias-brand-primary,#d97757)}\n.dstl-notes-actions{display:flex;justify-content:flex-end;gap:6px}\n.dstl-foot{flex:none;display:flex;align-items:center;gap:6px;padding:7px 12px;border-top:1px solid var(--dsw-alias-border-l1,#e3e0da);font-size:11px;line-height:16px;color:var(--dsw-alias-label-secondary,#8a857c)}\n.dstl-foot-dot{flex:none;width:6px;height:6px;border-radius:50%;background:var(--dsw-alias-state-warn-primary,#d98e2b)}\n.dstl-foot-dot-error{background:var(--dsw-alias-state-error-primary,#c0392b)}\n.dstl-foot-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}\n.dstl-foot-ver{flex:none;margin-left:auto;padding-left:8px;font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-tertiary,#a39d92);white-space:nowrap}\n.dstl-empty{display:flex;flex-direction:column;gap:4px;padding:22px 14px;text-align:center}\n.dstl-empty-title{font-size:12.5px;color:var(--dsw-alias-label-secondary,#8a857c)}\n.dstl-empty-hint{font-size:11.5px;color:var(--dsw-alias-label-tertiary,#a39d92)}\n.dstl-create{margin-bottom:2px}\n.dstl-row-create{background:var(--dsw-alias-bg-layer-2,#f4f1eb)}\n.dstl-create-slot{color:var(--dsw-alias-label-tertiary,#a39d92)}\n.dstl-external{flex:none;width:6px;height:6px;margin-top:7px;border-radius:50%;background:var(--dsw-alias-state-warn-primary,#d98e2b)}\n.dstl-menu-open .dstl-row-actions{opacity:1;max-width:170px;margin-left:4px}\n.dstl-menu{position:absolute;right:6px;top:calc(100% - 2px);z-index:5;min-width:132px;padding:4px;display:flex;flex-direction:column;gap:1px;background:var(--dsw-alias-bg-layer-1,#ffffff);border:1px solid var(--dsw-alias-border-l1,#e3e0da);border-radius:9px;box-shadow:var(--dsw-shadow-soft, 0 8px 24px rgba(15,17,21,.06))}\n.dstl-menu-item{display:flex;align-items:center;gap:8px;width:100%;padding:6px 8px;border:none;border-radius:6px;background:transparent;color:var(--dsw-alias-label-primary,#1f1f1f);font:inherit;font-size:12.5px;line-height:18px;text-align:left;cursor:pointer;white-space:nowrap}\n.dstl-menu-item:hover{background:var(--dsw-alias-interactive-bg-hover,#f2efe9)}\n.dstl-menu-item.dstl-menu-on{color:var(--dsw-alias-brand-primary,#d97757)}\n.dstl-menu-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}\n\n/* ---- app-specific additions (not in the reference plugin) ---- */\n\n.dstl-tabs{flex:none;display:flex;gap:4px;padding:0 10px 8px}\n.dstl-tab{flex:none;padding:4px 10px;border:1px solid var(--dsw-alias-border-l1,#e3e0da);border-radius:999px;background:var(--dsw-alias-bg-layer-1,#fff);color:var(--dsw-alias-label-secondary,#6b6b6b);font:inherit;font-size:12px;line-height:16px;cursor:pointer}\n.dstl-tab:hover{background:var(--dsw-alias-interactive-bg-hover,#f2efe9)}\n.dstl-tab.dstl-tab-on{background:var(--dsw-alias-brand-primary,#d97757);border-color:var(--dsw-alias-brand-primary,#d97757);color:#fff}\n.dstl-tab-count{margin-left:4px;font-variant-numeric:tabular-nums;opacity:.75}\n\n.dstl-group{margin:2px 0 8px;border:1px solid var(--dsw-alias-border-l1,#e3e0da);border-radius:12px;padding:2px 3px 4px;background:var(--dsw-alias-bg-layer-2,#faf9f7)}\n.dstl-row-notes-wrap{display:block}\n\n.dstl-cat-ring{flex:none;display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;opacity:.95}\n.dstl-cat-ring svg{width:18px;height:18px}\n.dstl-badge{flex:none;padding:0 5px;border-radius:4px;font-size:10.5px;line-height:15px;letter-spacing:.02em;color:var(--dsw-alias-label-secondary,#6b6b6b);background:var(--dsw-alias-bg-layer-2,#f4f1eb);border:1px solid var(--dsw-alias-border-l1,#e3e0da)}\n.dstl-badge-daily{color:#3f7d4a;border-color:#bcd8bf;background:#eef6ee}\n.dstl-badge-monthly{color:#3f5f8a;border-color:#c2d2e6;background:#eef2f8}\n.dstl-badge-deadline{color:#a35a1f;border-color:#e6cfb8;background:#fbf1e6}\n.dstl-badge-due{color:#a03a2f;border-color:#eec4bd;background:#fbeae7}\n\n.dstl-deadline-hint{flex:none;font-size:11px;line-height:16px;color:var(--dsw-alias-label-tertiary,#a39d92);font-variant-numeric:tabular-nums}\n.dstl-deadline-hint.dstl-overdue{color:var(--dsw-alias-state-error-primary,#c0392b);font-weight:600}\n.dstl-row.dstl-overdue .dstl-title-text{color:var(--dsw-alias-state-error-primary,#c0392b)}\n\n.dstl-composer{flex:none;display:flex;align-items:center;gap:6px;padding:0 10px 8px}\n.dstl-composer .dstl-input{font-size:13px;padding:7px 10px}\n.dstl-composer .dstl-btn{padding:7px 12px}\n\n.dstl-empty-panel{display:flex;flex-direction:column;align-items:center;gap:6px;padding:44px 16px;text-align:center}\n\n/* ---- DSH plugin shell: the right-Sidebar tab slot ---- */\n.dstl-todo-tab{height:100%;min-height:0;display:flex;flex-direction:column;background:var(--dsw-alias-bg-layer-1,#ffffff)}\n.dstl-todo-tab>.dstl-app{flex:1;min-height:0;height:auto}\n.dstl-todo-tab-title{display:inline-flex;align-items:center;gap:6px;min-width:0}\n.dstl-todo-header-btn{flex:none;width:28px;height:28px;padding:0;border:none;border-radius:7px;background:transparent;color:var(--dsw-alias-label-secondary,#61666b);cursor:pointer;display:inline-flex;align-items:center;justify-content:center}\n.dstl-todo-header-btn:hover{background:var(--dsw-alias-interactive-bg-hover,#f2f4f7);color:var(--dsw-alias-label-primary,#0f1115)}\n/* two-step abandon: the armed state turns the trash button into a red\n   confirm target whose ring drains over the 4s window. */\n.dstl-icon-btn.dstl-danger.dstl-confirming{background:var(--dsw-alias-state-error-primary,#c0392b);color:#ffffff;width:26px}\n.dstl-icon-btn.dstl-danger.dstl-confirming:hover{background:var(--dsw-alias-state-error-primary,#c0392b);color:#ffffff}\n.dstl-confirm-arc{animation:dstl-confirm-countdown 4s linear forwards}\n@keyframes dstl-confirm-countdown{from{stroke-dashoffset:0}to{stroke-dashoffset:39}}";
+// plugin/src/client/scope-css.js
+/** Selectors that must not gain the scope ancestor (they sit outside it). */
+const EXEMPT = [
+	".dstl-app",
+	".dstl-main-page",
+	".dstl-todo-tab",
+	".dstl-todo-header-btn",
+	".dstl-todo-tab-title"
+];
+const KEYFRAME_PREFIX = "dstl-todo-";
+function isExempt(selector) {
+	return EXEMPT.some((prefix) => selector === prefix || selector.startsWith(prefix + " ") || selector.startsWith(prefix + ".") || selector.startsWith(prefix + ":") || selector.startsWith(prefix + "["));
+}
+function scopeSelectorList(head) {
+	return head.split(",").map((part) => {
+		const selector = part.trim();
+		if (!selector) return selector;
+		if (isExempt(selector)) return selector;
+		return ".dstl-app " + selector;
+	}).join(", ");
+}
+function walk(css) {
+	let out = "";
+	let rest = css;
+	while (rest.length > 0) {
+		const open = rest.indexOf("{");
+		if (open < 0) {
+			out += rest;
+			break;
+		}
+		let depth = 1;
+		let index = open + 1;
+		while (index < rest.length && depth > 0) {
+			if (rest[index] === "{") depth += 1;
+			else if (rest[index] === "}") depth -= 1;
+			index += 1;
+		}
+		const head = rest.slice(0, open).trim();
+		const body = rest.slice(open + 1, index - 1);
+		if (/^@(media|supports)\b/.test(head)) out += head + "{" + walk(body) + "}";
+		else if (/^@(-webkit-|-moz-)?keyframes\b/.test(head)) out += head + "{" + body + "}";
+		else if (head.startsWith("@")) out += head + "{" + body + "}";
+		else out += scopeSelectorList(head) + "{" + body + "}";
+		rest = rest.slice(index);
+	}
+	return out;
+}
+/**
+* @param {string} css raw stylesheet text
+* @returns {string} the same sheet, scoped and with namespaced keyframes
+*/
+function scopeCss(css) {
+	const source = String(css || "").replace(/\/\*[\s\S]*?\*\//g, "");
+	const names = /* @__PURE__ */ new Set();
+	for (const match of source.matchAll(/@keyframes\s+([\w-]+)/g)) names.add(match[1]);
+	return walk(source.replace(/\b(dstl-[\w-]+)\b/g, (token) => names.has(token) ? KEYFRAME_PREFIX + token.replace(/^dstl-/, "") : token));
+}
+// plugin/src/client/index.jsx
 /**
 * Client half of the todo-list bundle.
 *
@@ -2970,9 +3185,12 @@ const TAB_ID = "dsh-todo-list/todo";
 const TAB_KIND = "baoyuanTodo";
 /** The host's default page; handing the column back to it is the "close" half. */
 const GUIDE_KIND = "guide";
+/** Left-menu entry id; the shell selects the keyed `main` panel by this same id. */
+const MAIN_KEY = "todo-list-panel";
 const zh = {
 	"tab.title": "待办列表",
 	"open.label": "待办列表",
+	"nav.label": "待办",
 	"open.aria": "打开或关闭待办列表",
 	"guide.title": "待办列表",
 	"guide.description": "个人待办：分类、分组、五态与备份"
@@ -2980,14 +3198,16 @@ const zh = {
 const en = {
 	"tab.title": "Todo list",
 	"open.label": "Todo list",
+	"nav.label": "Todos",
 	"open.aria": "Open or close the todo list",
 	"guide.title": "Todo list",
 	"guide.description": "Personal todos with categories, groups, five states and backups"
 };
 function installStyles() {
+	for (const stale of document.querySelectorAll("style[data-plugin=\"dsh-todo-list\"]")) stale.remove();
 	const element = document.createElement("style");
 	element.setAttribute("data-plugin", "dsh-todo-list");
-	element.textContent = styles_text_default;
+	element.textContent = scopeCss(styles_text_default);
 	document.head.appendChild(element);
 	return () => {
 		if (element.parentNode) element.parentNode.removeChild(element);
@@ -3066,6 +3286,37 @@ function TodoHeaderButton({ open, t }) {
 		strokeLinecap: "round",
 		strokeLinejoin: "round"
 	})));
+}
+/**
+* The left-menu entry: `sidebar.panellist` renders one icon button per list id
+* and resolves that id against the keyed `main` slot, so this component is only
+* the glyph — the shell owns the button, the label and the click.
+*/
+function TodoPanelIcon({ size = 16 }) {
+	return (0, react.createElement)("svg", {
+		width: size,
+		height: size,
+		viewBox: "0 0 16 16",
+		fill: "none",
+		"aria-hidden": "true"
+	}, (0, react.createElement)("circle", {
+		cx: 8,
+		cy: 8,
+		r: 6,
+		stroke: "currentColor",
+		strokeWidth: 1.4,
+		opacity: .55
+	}), (0, react.createElement)("path", {
+		d: "M5.4 8.2l1.9 1.9 3.4-3.9",
+		stroke: "currentColor",
+		strokeWidth: 1.5,
+		strokeLinecap: "round",
+		strokeLinejoin: "round"
+	}));
+}
+/** The same panel, opened in the main column instead of the right Sidebar. */
+function TodoMainPanel() {
+	return (0, react.createElement)("div", { className: "dstl-main-page" }, (0, react.createElement)(TaskPanel));
 }
 /** The Session the right Sidebar is showing, when one is mounted. */
 function mountedSession(ctx) {
@@ -3172,6 +3423,18 @@ function apply(ctx) {
 		label: () => t("open.label"),
 		inject: () => ({ open: () => toggleTodoTab(ctx) })
 	}, TodoHeaderButton));
+	ctx.slots.inject("main", () => ctx.slots.register({
+		name: "main",
+		key: MAIN_KEY,
+		locale: NS
+	}, TodoMainPanel));
+	ctx.slots.inject("sidebar.panellist", () => ctx.slots.register({
+		name: "sidebar.panellist",
+		id: MAIN_KEY,
+		order: 15,
+		locale: NS,
+		label: () => t("nav.label")
+	}, TodoPanelIcon));
 }
 exports.apply = apply;
 exports.inject = inject;

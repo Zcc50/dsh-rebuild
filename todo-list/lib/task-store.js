@@ -621,34 +621,78 @@ function monthKey(date) {
  * "last done 10-30". Deadline tasks are untouched — they only gain a red
  * "overdue N days" hint at render time.
  *
+ * Categories live on the top-level task only (§7.0: children inherit), and a
+ * parent's status is derived from its children — so the unit of rollover is the
+ * top-level task, not the individual row:
+ *
+ * - no children: the parent itself counts, and resets to `pending` when done;
+ * - with children: the group counts as done once every non-abandoned child is
+ *   `completed`; the rollover puts all of those children back to `pending` and
+ *   stamps `lastCompletedAt` on the parent.
+ *
  * Pure: returns `{ tasks, changed }` and never mutates the input.
  */
 export function refreshRecurring(tasks, now) {
   const at = Number.isFinite(now) ? now : Date.now();
   const today = new Date(at);
   const list = Array.isArray(tasks) ? tasks : [];
-  let changed = false;
-  const next = list.map((task) => {
-    const category = task && task.category;
-    if (category !== 'daily' && category !== 'monthly') return task;
-    if (task.status !== 'completed') return task;
-    const last = Number.isFinite(task.lastCompletedAt) ? task.lastCompletedAt : task.completedAt;
-    if (!Number.isFinite(last)) return task;
+
+  const childrenOf = new Map();
+  for (const task of list) {
+    if (task.parentId === null || task.parentId === undefined) continue;
+    const bucket = childrenOf.get(task.parentId);
+    if (bucket) bucket.push(task);
+    else childrenOf.set(task.parentId, [task]);
+  }
+
+  const replaced = new Map();
+  for (const top of list) {
+    if (top.parentId !== null && top.parentId !== undefined) continue;
+    const category = top.category;
+    if (category !== 'daily' && category !== 'monthly') continue;
+
+    const children = (childrenOf.get(top.id) || []).filter((child) => child.status !== 'abandoned');
+    const groupDone = children.length > 0
+      ? children.every((child) => child.status === 'completed')
+      : top.status === 'completed';
+    if (!groupDone) continue;
+
+    const stamps = [];
+    for (const child of children) {
+      const stamp = Number.isFinite(child.completedAt) ? child.completedAt : child.lastCompletedAt;
+      if (Number.isFinite(stamp)) stamps.push(stamp);
+    }
+    if (Number.isFinite(top.lastCompletedAt)) stamps.push(top.lastCompletedAt);
+    if (stamps.length === 0) continue;
+
+    const last = Math.max.apply(null, stamps);
     const lastDate = new Date(last);
-    if (Number.isNaN(lastDate.getTime())) return task;
+    if (Number.isNaN(lastDate.getTime())) continue;
     const rolled = category === 'daily'
       ? dayKey(lastDate) !== dayKey(today)
       : monthKey(lastDate) !== monthKey(today);
-    if (!rolled) return task;
-    changed = true;
-    return {
-      ...task,
-      status: 'pending',
-      completedAt: null,
+    if (!rolled) continue;
+
+    const stamped = {
+      ...top,
       lastCompletedAt: last,
-      version: (task.version || 0) + 1,
+      version: (top.version || 0) + 1,
       updatedAt: at,
     };
-  });
-  return { tasks: next, changed };
+    replaced.set(top.id, children.length > 0
+      ? stamped
+      : { ...stamped, status: 'pending', completedAt: null });
+    for (const child of children) {
+      replaced.set(child.id, {
+        ...child,
+        status: 'pending',
+        completedAt: null,
+        version: (child.version || 0) + 1,
+        updatedAt: at,
+      });
+    }
+  }
+
+  if (replaced.size === 0) return { tasks: list, changed: false };
+  return { tasks: list.map((task) => replaced.get(task.id) || task), changed: true };
 }

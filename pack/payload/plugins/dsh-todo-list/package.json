@@ -1,6 +1,6 @@
 {
   "name": "@local/dsh-todo-list",
-  "version": "0.1.0",
+  "version": "1.4.0",
   "private": true,
   "type": "module",
   "description": "Personal todo list as a right-Sidebar tab: categories, groups, five states, backups and export, over the same tasks.json the Electron build used.",

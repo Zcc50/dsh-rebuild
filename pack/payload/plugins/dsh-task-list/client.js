@@ -43,6 +43,10 @@ window.__ModuleLoader__.load({
     const WIDTH_KEY = 'dsh.task-list.width.v1';
     const PANEL_GAP = 16;
     const PANEL_TOP = 8;
+    // Shown in the panel footer so a stale client bundle (browser cache, an old
+    // window still mounted) is visible at a glance instead of looking like a
+    // intermittent bug in the current build.
+    const CLIENT_VERSION = '0.3.19';
     const STATUS_ORDER = ['pending', 'in_progress', 'review', 'completed'];
 
     const zh = {
@@ -224,7 +228,58 @@ window.__ModuleLoader__.load({
       ));
     }
 
-    const CSS = [
+    // The todo-list app injects its own global stylesheet into the same head
+    // and reuses the `dstl-*` class names (`.dstl-complete-dock`,
+    // `.dstl-abandoned-dock`, `.dstl-row`, …). Its rules are unscoped, so a
+    // later append of that block silently overrides this panel's dock styles
+    // (that was the intermittent "completed dock disappears" bug). Prefix every
+    // rule with the panel root: same-named rules from other plugins carry one
+    // class less and can no longer win.
+    function scopeCss(css) {
+      const root = '.dstl-panel';
+      let out = '';
+      let index = 0;
+      while (index < css.length) {
+        const brace = css.indexOf('{', index);
+        if (brace < 0) {
+          out += css.slice(index);
+          break;
+        }
+        const selector = css.slice(index, brace).trim();
+        let depth = 0;
+        let cursor = brace;
+        while (cursor < css.length) {
+          if (css[cursor] === '{') depth += 1;
+          else if (css[cursor] === '}') {
+            depth -= 1;
+            if (depth === 0) break;
+          }
+          cursor += 1;
+        }
+        const block = css.slice(brace + 1, cursor);
+        if (selector.startsWith('@')) {
+          if (/^@(media|supports|container|layer)\b/.test(selector)) {
+            out += selector + '{' + scopeCss(block) + '}';
+          } else {
+            out += selector + '{' + block + '}';
+          }
+        } else if (selector !== '') {
+          const scoped = selector.split(',').map((part) => {
+            const trimmed = part.trim();
+            if (trimmed === '') return trimmed;
+            return trimmed.startsWith(root) ? trimmed : root + ' ' + trimmed;
+          }).join(',');
+          out += scoped + '{' + block + '}';
+        } else {
+          out += '{' + block + '}';
+        }
+        index = cursor + 1;
+      }
+      return out;
+    }
+
+
+    const CSS = scopeCss([
       '.dstl-panel{position:absolute;z-index:6;left:16px;box-sizing:border-box;display:flex;flex-direction:column;width:340px;background:var(--dsw-alias-bg-layer-1,#ffffff);border:1px solid var(--dsw-alias-border-l1,#e3e0da);border-radius:14px;box-shadow:0 10px 30px rgba(20,16,12,.08);font-family:var(--dsw-font-family,inherit);color:var(--dsw-alias-label-primary,#1f1f1f);overflow:hidden}',
       '.dstl-head{display:flex;align-items:center;gap:8px;padding:11px 10px 9px 12px;flex:none}',
       '.dstl-ring{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;flex:none}',
@@ -270,19 +325,16 @@ window.__ModuleLoader__.load({
       '.dstl-abandoned-body{padding:0;transition:height .24s cubic-bezier(.2,.8,.2,1),padding .24s ease,margin .24s ease,border-width .24s ease,opacity .24s ease,transform .24s cubic-bezier(.2,.8,.2,1)}',
       '.dstl-abandoned-hint{padding:2px 4px 4px;font-size:12px;line-height:18px;color:var(--dsw-alias-label-tertiary,#a39d92)}',
       // The completed dock mirrors the abandoned one, minus the counter and the
-      // empty hint. It sits above the abandoned dock and collapses to zero
-      // height until the pointer enters the bottom dock area; a click pins it
-      // open and folds the abandoned body down to its title row.
-      // The completed dock is standing furniture like the abandoned one: its
-      // title row is always visible so a phase that finishes into it can never
-      // look like it vanished. A click opens the body.
+      // empty hint. Its title row is always visible so a phase that finishes
+      // into it can never look like it vanished; a click opens the body and
+      // folds the abandoned body down to its title row.
       '.dstl-docks{flex:none;display:flex;flex-direction:column;min-height:0}',
       '.dstl-complete-dock{flex:none;min-height:0;max-height:220px;overflow:hidden;padding:2px 6px 6px;opacity:1;transform:none;border-top:1px solid var(--dsw-alias-border-l1,#e3e0da);background:var(--dsw-alias-bg-layer-1,#ffffff);transition:max-height .26s cubic-bezier(.2,.8,.2,1),padding .26s ease,opacity .2s ease,transform .26s cubic-bezier(.2,.8,.2,1),border-color .2s ease}',
       // Folded away until the pointer reaches the bottom docks (or the user pins
       // it open): the title row is part of the fold, not always-on furniture.
       '.dstl-complete-dock.dstl-complete-hidden{max-height:0;padding-top:0;padding-bottom:0;opacity:0;overflow:hidden;border-top-color:transparent;transform:translateY(6px);pointer-events:none}',
       // Pointer-only entry, independent of React's mouseenter: hovering anywhere
-      // in the bottom dock strip reveals the completed title row, and keeps it
+      // in the bottom dock strip reveals the finished title row, and keeps it
       // revealed while the pointer stays inside the same strip.
       '.dstl-docks:hover .dstl-complete-dock.dstl-complete-hidden{max-height:220px;padding:2px 6px 6px;opacity:1;transform:none;pointer-events:auto;border-top-color:var(--dsw-alias-border-l1,#e3e0da)}',
       '.dstl-complete-dock.dstl-complete-open{max-height:50vh;overflow-y:auto;scrollbar-width:thin;scrollbar-color:var(--dsw-alias-border-l2,#d6d0c6) transparent}',
@@ -391,6 +443,7 @@ window.__ModuleLoader__.load({
       '.dstl-textarea:focus{border-color:var(--dsw-alias-brand-primary,#d97757)}',
       '.dstl-notes-actions{display:flex;justify-content:flex-end;gap:6px}',
       '.dstl-foot{flex:none;display:flex;align-items:center;gap:6px;padding:7px 12px;border-top:1px solid var(--dsw-alias-border-l1,#e3e0da);font-size:11px;line-height:16px;color:var(--dsw-alias-label-secondary,#8a857c)}',
+      '.dstl-foot-version{margin-left:auto;font-size:10px;line-height:14px;color:var(--dsw-alias-label-tertiary,#a39d92);font-variant-numeric:tabular-nums}',
       '.dstl-foot-dot{flex:none;width:6px;height:6px;border-radius:50%;background:var(--dsw-alias-state-warn-primary,#d98e2b)}',
       '.dstl-foot-dot-error{background:var(--dsw-alias-state-error-primary,#c0392b)}',
       '.dstl-foot-text{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
@@ -407,7 +460,7 @@ window.__ModuleLoader__.load({
       '.dstl-menu-item:hover{background:var(--dsw-alias-interactive-bg-hover,#f2efe9)}',
       '.dstl-menu-item.dstl-menu-on{color:var(--dsw-alias-brand-primary,#d97757)}',
       '.dstl-menu-label{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis}',
-    ].join('\n');
+    ].join('\n'));
 
     // ------------------------------------------------------------------
     // styles and helpers
@@ -1589,20 +1642,18 @@ window.__ModuleLoader__.load({
       const [composerHeight, setComposerHeight] = useState(96);
       const [selectedId, setSelectedId] = useState(null);
       const [collapsedParents, setCollapsedParents] = useState({});
-      // Both docks start folded to their title row. The abandoned one is the
-      // resting dock (always visible); the completed one waits until the pointer
-      // reaches the bottom strip.
+      // The abandoned dock keeps its title row standing. The completed one stays
+      // folded away (title included) until the pointer reaches the bottom strip;
+      // a click pins it open and folds the abandoned body down to its title row.
       const [abandonedCollapsed, setAbandonedCollapsed] = useState(true);
       const [abandonedFolding, setAbandonedFolding] = useState(false);
       const [abandonedEntering, setAbandonedEntering] = useState(false);
-      // The completed dock stays out of the way until the pointer reaches the
-      // bottom docks; a click pins it open and folds the abandoned body down to
-      // its title row, so only one dock body is expanded at a time.
       const [completedHover, setCompletedHover] = useState(false);
       const [completedOpen, setCompletedOpen] = useState(false);
       const [completedEntering, setCompletedEntering] = useState(false);
       const completedEnterTimer = useRef(0);
       const abandonedBodyRef = useRef(null);
+      const docksRef = useRef(null);
       const abandonedTimer = useRef(0);
       const abandonedEnterTimer = useRef(0);
       const [dragTaskId, setDragTaskId] = useState(null);
@@ -1799,6 +1850,30 @@ window.__ModuleLoader__.load({
           document.removeEventListener('keydown', close);
         };
       }, [menuOpenId]);
+
+      // The bottom dock strip is the completed dock's hover target. Measure it
+      // on pointermove: a synthetic mouseenter can be lost when the panel
+      // re-renders under a resting pointer, and `:hover` is not recomputed
+      // until the mouse moves.
+      useEffect(() => {
+        if (typeof document === 'undefined') return undefined;
+        let inside = false;
+        const move = (event) => {
+          const node = docksRef.current;
+          const next = node
+            ? (() => {
+              const rect = node.getBoundingClientRect();
+              return event.clientX >= rect.left && event.clientX <= rect.right
+                && event.clientY >= rect.top && event.clientY <= rect.bottom;
+            })()
+            : false;
+          if (next === inside) return;
+          inside = next;
+          setCompletedHover(next);
+        };
+        document.addEventListener('pointermove', move, { passive: true });
+        return () => document.removeEventListener('pointermove', move);
+      }, []);
 
       // Track the live conversation body: the panel must follow session switches
       // and disappear when the conversation unmounts.
@@ -2991,8 +3066,8 @@ window.__ModuleLoader__.load({
 
       // The completed dock reads exactly like the abandoned one — same rows,
       // same fold, same subtree hand-over — minus the counter and the empty
-      // hint. It sits above the abandoned dock and only slides out when the
-      // pointer is inside the bottom dock area; a click pins it open.
+      // hint. It sits above the abandoned dock and stays folded away until the
+      // pointer is inside the bottom dock strip; a click pins it open.
       const completedDock = h('div', {
         className: 'dstl-complete-dock' + (completedOpen ? ' dstl-complete-open' : '')
           + (completedOpen || completedHover ? '' : ' dstl-complete-hidden'),
@@ -3079,6 +3154,7 @@ window.__ModuleLoader__.load({
       // to the completed title row must not blink the completed dock away.
       const docks = h('div', {
         className: 'dstl-docks',
+        ref: docksRef,
         onMouseEnter: () => setCompletedHover(true),
         onMouseLeave: () => setCompletedHover(false),
       }, completedDock, abandonedDock);
@@ -3127,7 +3203,8 @@ window.__ModuleLoader__.load({
             'aria-hidden': 'true',
           }),
           h('span', { className: 'dstl-foot-text', title: notice || t('panel.footer') },
-            notice || (loaded ? t('panel.footer') : t('notice.loading')))),
+            notice || (loaded ? t('panel.footer') : t('notice.loading'))),
+          h('span', { className: 'dstl-foot-version', title: 'task-list ' + CLIENT_VERSION }, 'v' + CLIENT_VERSION)),
         h('div', {
           className: 'dstl-resizer',
           'data-dragging': resizing || undefined,

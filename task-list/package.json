@@ -1,6 +1,6 @@
 {
   "name": "dsh-task-list",
-  "version": "0.3.15",
+  "version": "0.3.19",
   "type": "module",
   "description": "DeepSeek Harness 任务列表：对话左侧常驻任务面板（五态 + 父子折叠 + 完成区/废弃区 dock），与 agent 共享同一份按会话落盘的列表。",
   "license": "MIT",

@@ -874,3 +874,46 @@ plugin_manager list_plugins → include:tool-todo enabled:false
 - **验证**：`node --check client.js` 通过、`lsp_diagnostics` 零诊断；用户刷新页面后实测悬停可出「已完成」标题、点击可展开，**验收通过（2026-11-05）**。
 - **版本**：0.3.14 → **0.3.15**；交付包 `F:\DSH\导出\DSH任务系统重建计划_2026-11-05_v0.3.15.zip`（14 个文件，解包哈希与 `SHA256SUMS.txt` 逐项一致）。
 
+## 34. 「已完成」停靠区间歇性不出现：pointermove + 版本标记（2026-11-06，v0.3.16）
+
+- **现象**：v0.3.15 修复后仍间歇复现——悬停底部条有时滑出「已完成」、有时完全无反应；用户原话「昨天下午也修好了，但刚才又不对了」。
+- **判断**：两条 hover 路径都依赖「鼠标移动时的一次命中」——React 合成 `mouseenter` 在轮询重渲染时可能丢失；CSS `:hover` 在鼠标静止时不随 DOM 变化重算。两者叠加即间歇性。
+- **修法**：
+  1. `client.js` 新增 document 级 `pointermove` 监听：每次移动量 `.dstl-docks` 的矩形，坐标落在条内即 `completedHover = true`，离开置 false；CSS 兜底与 `onMouseEnter` 保留，三条路互为后备。
+  2. 左下 footer 增加只读版本号 `v0.3.16`（`CLIENT_VERSION` 常量），用于一眼分辨页面跑的是不是旧 bundle（浏览器缓存 / 旧窗口 / HMR 残留）。
+- **验证**：`node --check client.js` 通过、53 单测全过；`lsp_diagnostics` 只剩 5 条既有 hint（`require` / `insertLocal` / `status` 未使用、两条 async 建议），无错误。
+- **经验**：DSH client 模块更新不一定随刷新立即生效；界面问题「修好又复发」时先看 footer 版本号确认跑的是新代码，再怀疑事件/布局。
+- **版本**：0.3.15 → **0.3.16**；交付包 `F:\DSH\导出\DSH任务系统重建计划_2026-11-06_v0.3.16.zip`。
+
+## 35. 「已完成」停靠区改为标题常驻（2026-11-07，v0.3.17）
+
+- **背景**：§34 的 pointermove 修复能缓解悬停丢失，但用户判断「这种隐藏非常容易出现 bug」，决定改为常驻——与「废弃」区一致。
+- **改动（`client.js`）**：
+  - completed dock 去掉 `dstl-complete-hidden` 整块折叠：**标题行常驻**，`completedOpen` 只控制 body 展开。
+  - 删除 `completedHover` state、`docksRef`、document 级 pointermove 监听、CSS `:hover` 兜底与 hidden 规则；废弃 dock 让位条件从 `completedOpen && !completedHover` 改为 `completedOpen`。
+  - 同步更新相关注释；`CLIENT_VERSION` 升到 `0.3.17`。
+- **验证**：`node --check` 通过、53 单测全过、`lsp_diagnostics` 零诊断；待用户刷新确认标题常驻与点击展开。
+- **版本**：0.3.16 → **0.3.17**；交付包 `F:\DSH\导出\DSH任务系统重建计划_2026-11-07_v0.3.17.zip`。
+
+## 36. 根因：待办插件同名 `dstl-*` 样式覆盖任务面板（2026-11-07，v0.3.18）
+
+- **现象**：每次更新「抱怨先生的待办列表」项目后，任务面板底部「已完成」整块消失（含标题）；此前多轮 hover/常驻修复都只是治标。
+- **根因**：两个插件共用 `dstl-*` 类名，且都把样式注入 `document.head`：
+  - 待办插件 `installStyles()` 每次新建 `<style>` 并 append 到 head 末尾，其 `styles.css` 是**裸选择器**（`.dstl-complete-dock`、`.dstl-abandoned-dock`、`.dstl-row`…），并未按该工程 HANDOFF 声称的限定在 `.dstl-app` 内；
+  - 待办 `.dstl-complete-dock{max-height:0;opacity:0;overflow:hidden}` 只有加 `.dstl-complete-revealed` 才展开；任务面板的完成 dock 不带该类 → 被压成 0 高透明，整块消失；
+  - 待办重建/重载会把样式重新 append 到 head 末尾，顺序总是压过任务面板 → 所以「每次待办更新后」复现。
+- **修法（本工程侧）**：`client.js` 新增 `scopeCss()`，注入前给所有规则选择器加 `.dstl-panel ` 前缀（自身 `.dstl-panel{}` 与 `@keyframes` 保留，`@media` / `@supports` 内部递归）；任务面板规则特异性升到 (0,2,0)，待办裸规则 (0,1,0) 无法再覆盖。
+- **验证**：独立脚本核对 135 条规则——前缀正确、`@media` 内同样前缀、`@keyframes` 原样、规则数不变；`node --check` 通过、53 单测全过、`lsp_diagnostics` 零诊断。
+- **待办侧遗留**：待办插件仍向全局注入裸 `dstl-*` 规则，会污染任何同名面板；建议同样按 `.dstl-app` 作用域化（属另一项目，未在本轮改动）。
+- **版本**：0.3.17 → **0.3.18**；交付包 `F:\DSH\导出\DSH任务系统重建计划_2026-11-07_v0.3.18.zip`。
+
+## 37. 恢复「已完成」停靠区的隐藏/滑出动画（2026-11-07，v0.3.19）
+
+- **背景**：待办插件已按 `.dstl-app` 作用域化（§36 遗留项已修），样式覆盖的根因解除；用户要求把 v0.3.12 的隐藏/滑出动画还回来。
+- **改动（`client.js`）**：
+  - 恢复 `completedHover` state、`docksRef`、document 级 `pointermove` 监听、docks 的 `onMouseEnter` / `onMouseLeave`；
+  - 恢复 `.dstl-complete-dock.dstl-complete-hidden` 与 `.dstl-docks:hover …` 规则（经 `scopeCss` 自动挂到 `.dstl-panel` 下，不再被外部插件覆盖）；
+  - completedDock className 恢复 `completedOpen || completedHover` 判断；废弃 dock 让位条件恢复 `completedOpen && !completedHover`。
+- **验证**：`node --check` 通过、53 单测全过、`lsp_diagnostics` 零诊断；待用户刷新确认默认隐藏、悬停滑出、点击钉住。
+- **版本**：0.3.18 → **0.3.19**；交付包 `F:\DSH\导出\DSH任务系统重建计划_2026-11-07_v0.3.19.zip`。
+

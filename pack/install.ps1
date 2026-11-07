@@ -371,6 +371,20 @@ if (($items -notcontains 'agents') -or $AgentsPolicy -eq 'keep') {
   Write-Info '本次不处理 AGENTS.md'
 }
 else {
+  # 白皮书附件（AGENTS-*.md）：overwrite 时覆盖；append 时只补缺失；keep 不动
+  $attachments = @(Get-ChildItem -Path $Script:PayloadDir -Filter 'AGENTS-*.md' -File -ErrorAction SilentlyContinue)
+  foreach ($att in $attachments) {
+    $dstAtt = Join-Path $Script:DshHome $att.Name
+    if ($AgentsPolicy -eq 'overwrite') {
+      if (Test-Path $dstAtt) { Copy-Item $dstAtt (Join-Path $backupDir $att.Name) -Force }
+      Copy-Item $att.FullName $dstAtt -Force
+      Write-Info "附件已覆盖: $($att.Name)"
+    }
+    elseif ($AgentsPolicy -eq 'append') {
+      if (-not (Test-Path $dstAtt)) { Copy-Item $att.FullName $dstAtt -Force; Write-Info "附件已补: $($att.Name)" }
+      else { Write-Info "附件已存在，保留: $($att.Name)" }
+    }
+  }
   $newAgents = Join-Path $Script:PayloadDir 'AGENTS.md'
   if (-not (Test-Path $newAgents)) { Write-Warn2 '包内缺少 AGENTS.md' }
   else {

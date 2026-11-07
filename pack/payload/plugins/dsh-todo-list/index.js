@@ -227,9 +227,10 @@ function writeStore(tasks) {
   const file = storeFile();
   const dir = path.dirname(file);
   fs.mkdirSync(dir, { recursive: true });
+  const previous = readStore();
   const next = {
-    version: 1,
-    deviceId: readStore().deviceId,
+    version: (Number(previous.version) || 0) + 1,
+    deviceId: previous.deviceId,
     tasks,
     updatedAt: Date.now(),
   };
@@ -433,6 +434,7 @@ async function handle(ctx, req, res) {
         return sendJson(res, 200, {
           ok: true,
           tasks: state.tasks,
+          version: state.version,
           deviceId: state.deviceId,
           dataDir: dataDir(),
           updatedAt: state.updatedAt,
@@ -454,7 +456,7 @@ async function handle(ctx, req, res) {
     if (route === '/tasks') {
       const tasks = Array.isArray(body.tasks) ? body.tasks : [];
       const state = writeStore(tasks);
-      return sendJson(res, 200, { ok: true, tasks: state.tasks, updatedAt: state.updatedAt });
+      return sendJson(res, 200, { ok: true, tasks: state.tasks, version: state.version, updatedAt: state.updatedAt });
     }
     if (route === '/backup') return sendJson(res, 200, { ok: true, ...backupNow() });
     if (route === '/export') return sendJson(res, 200, exportStore());
@@ -639,7 +641,7 @@ function todoUpdateTool() {
         id: { type: 'string', description: 'Task id, as returned by todo_list or todo_add.' },
         title: { type: 'string', description: 'New title.' },
         notes: { type: 'string', description: 'New note text.' },
-        status: { type: 'string', enum: [...STATUSES], description: 'pending | in_progress | review | completed | abandoned' },
+        status: { type: 'string', enum: [...STATUSES], description: 'pending | in_progress | review | completed | abandoned (top-level tasks only; subtasks cannot be abandoned)' },
         priority: { type: 'string', enum: [...PRIORITIES], description: 'high | medium | low' },
         category: { type: 'string', enum: [...CATEGORIES], description: 'daily | monthly | deadline; pass null to clear.' },
         group: { type: 'string', description: 'Group name; pass an empty string to clear.' },
@@ -656,7 +658,11 @@ function todoUpdateTool() {
       const input = args && typeof args === 'object' ? args : {};
       if (typeof input.id !== 'string' || !input.id) throw new Error('id is required');
       const state = readStore();
-      if (!state.tasks.some((task) => task.id === input.id)) throw new Error('task not found: ' + input.id);
+      const target = state.tasks.find((task) => task.id === input.id);
+      if (!target) throw new Error('task not found: ' + input.id);
+      if (input.status === 'abandoned' && target.parentId) {
+        throw new Error('子任务不支持废弃（废弃后会从列表里消失）；要移除请用 remove: true');
+      }
       if (input.remove === true) {
         const tasks = removeSubtree(state.tasks, input.id);
         writeStore(tasks);
@@ -691,10 +697,11 @@ function armAutoBackup(ctx) {
     const arm = () => {
       const every = Number(loadConfig().autoBackup && loadConfig().autoBackup.every) || 0;
       if (every <= 0) return () => {};
-      const timer = ctx.interval(() => {
+      const timer = setInterval(() => {
         autoBackupQuiet();
       }, every * 60_000);
-      return timer;
+      if (timer && typeof timer.unref === 'function') timer.unref();
+      return () => clearInterval(timer);
     };
     let stop = arm();
     return () => {
@@ -703,10 +710,39 @@ function armAutoBackup(ctx) {
   }, 'todo-list: auto backup timer');
 }
 
+// ---------------------------------------------------------------------------
+// recurring rollover
+// ---------------------------------------------------------------------------
+
+/**
+ * The panel only rolls recurring groups over while it is open, so a `daily`
+ * group finished yesterday would stay completed until someone happened to look.
+ * This host-side timer runs the same pure rollover on its own schedule, so the
+ * file is already correct the next time any surface reads it.
+ */
+function armRecurringReset(ctx) {
+  ctx.effect(() => {
+    const tick = () => {
+      try {
+        const state = readStore();
+        const rolled = refreshRecurring(state.tasks || [], Date.now());
+        if (rolled.changed) writeStore(rolled.tasks);
+      } catch (error) {
+        console.error('[todo-list] recurring rollover failed:', error);
+      }
+    };
+    tick();
+    const timer = setInterval(tick, 30 * 60_000);
+    if (timer && typeof timer.unref === 'function') timer.unref();
+    return () => clearInterval(timer);
+  }, 'todo-list: recurring rollover timer');
+}
+
 export function apply(ctx) {
   ctx.effect(() => ctx.tools.register(todoListTool()), 'todo-list: tool todo_list');
   ctx.effect(() => ctx.tools.register(todoAddTool()), 'todo-list: tool todo_add');
   ctx.effect(() => ctx.tools.register(todoUpdateTool()), 'todo-list: tool todo_update');
   mountRoutes(ctx);
   armAutoBackup(ctx);
+  armRecurringReset(ctx);
 }

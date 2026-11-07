@@ -1,6 +1,6 @@
 {
   "name": "dsh-todo-list",
-  "version": "0.1.0",
+  "version": "1.4.0",
   "type": "module",
   "description": "DeepSeek Harness 待办列表：右侧栏常驻标签，分类 / 分组 / 五态 / 备份导出，数据按会话落盘。",
   "license": "MIT",
