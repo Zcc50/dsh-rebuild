@@ -12,8 +12,14 @@
  * Group data is plugin-owned and lives in this browser's localStorage,
  * keyed by Workspace id. It never touches the Session log.
  */
+// The loader keys registrations by package name: since DSH 0.2.2-rc.5 a
+// resource whose id is not the package `name` looks unregistered, and the
+// single-resource retry then replays this bundle into a "duplicate factory
+// registration" error, so `apply` never runs. Keep all three uses on PKG.
+const PKG = 'dsh-workspace-frontend';
+
 window.__ModuleLoader__.load({
-  id: '@local/dsh-workspace-frontend',
+  id: PKG,
   factory(require) {
     const React = require('react');
     const h = React.createElement;
@@ -35,7 +41,7 @@ window.__ModuleLoader__.load({
 
     const NS = 'sessionGroups';
     const STORAGE_KEY = 'dsh.session-groups.v1';
-    const CSS_ID = '@local/dsh-workspace-frontend/panel.css';
+    const CSS_ID = PKG + '/panel.css';
 
     const PALETTE = [
       '#D97757', '#6A9B7E', '#5B8DB8', '#B08BBB',
@@ -76,6 +82,9 @@ window.__ModuleLoader__.load({
       'row.context': '上下文已用 {percent}%',
       'row.contextRunning': '正在工作 · 上下文已用 {percent}%',
       'row.schedule': '已设定时任务',
+      'row.subagents': '子会话 {n} 个',
+      'row.subagentsExpand': '展开子会话',
+      'row.subagentsCollapse': '收起子会话',
       'row.archive': '归档会话',
       'row.unarchive': '取消归档',
       'rename.title': '重命名会话',
@@ -90,6 +99,8 @@ window.__ModuleLoader__.load({
       'move.create': '创建并移入',
       'move.noWorkspace': '找不到这个会话所属的工作区。',
       'menu.moveToSection': '移入分组…',
+      'menu.openIn': '在应用中打开',
+      'menu.openFailed': '打开失败',
       'hover.section': '分组',
       'browser.searchPlaceholder': '搜索会话',
       'browser.showArchived': '显示已归档',
@@ -102,6 +113,9 @@ window.__ModuleLoader__.load({
       'browser.noWorkspace': '还没有工作区',
       'browser.addFirstWorkspace': '添加工作区',
       'browser.deleteWorkspace': '删除工作区',
+      'browser.collapse': '折叠',
+      'browser.expand': '展开',
+      'browser.workspaceTitlePlaceholder': '工作区标题',
       'browser.deleteWorkspaceConfirm': '确认删除',
       'browser.deleteGroup': '删除分组',
       'browser.deleteGroupConfirm': '确认删除',
@@ -117,6 +131,11 @@ window.__ModuleLoader__.load({
       'time.day': '{n} 天前',
       'time.month': '{n} 个月前',
       'time.year': '{n} 年前',
+      'time.minuteShort': '{n}分',
+      'time.hourShort': '{n}时',
+      'time.dayShort': '{n}天',
+      'time.monthShort': '{n}月',
+      'time.yearShort': '{n}年',
       'ctx.alert20.title': '上下文已用 {percent}%',
       'ctx.alert20.body': '已达 25% 提醒线。已交付的内容会落盘留档、只留一行索引指针，需要时按关键词回读，不占上下文。',
       'ctx.alert40.title': '上下文已用 {percent}%，该收尾了',
@@ -155,6 +174,9 @@ window.__ModuleLoader__.load({
       'row.context': '{percent}% of context used',
       'row.contextRunning': 'Working · {percent}% of context used',
       'row.schedule': 'Scheduled task set',
+      'row.subagents': '{n} subagent sessions',
+      'row.subagentsExpand': 'Expand subagent sessions',
+      'row.subagentsCollapse': 'Collapse subagent sessions',
       'row.archive': 'Archive session',
       'row.unarchive': 'Unarchive session',
       'rename.title': 'Rename session',
@@ -169,6 +191,8 @@ window.__ModuleLoader__.load({
       'move.create': 'Create and move',
       'move.noWorkspace': 'The workspace of this session could not be resolved.',
       'menu.moveToSection': 'Move to group…',
+      'menu.openIn': 'Open in app',
+      'menu.openFailed': 'Open failed',
       'hover.section': 'Group',
       'browser.searchPlaceholder': 'Search sessions',
       'browser.showArchived': 'Show archived',
@@ -181,6 +205,9 @@ window.__ModuleLoader__.load({
       'browser.noWorkspace': 'No workspace yet',
       'browser.addFirstWorkspace': 'Add workspace',
       'browser.deleteWorkspace': 'Delete workspace',
+      'browser.collapse': 'Collapse',
+      'browser.expand': 'Expand',
+      'browser.workspaceTitlePlaceholder': 'Workspace title',
       'browser.deleteWorkspaceConfirm': 'Confirm delete',
       'browser.deleteGroup': 'Delete group',
       'browser.deleteGroupConfirm': 'Confirm delete',
@@ -196,6 +223,11 @@ window.__ModuleLoader__.load({
       'time.day': '{n}d ago',
       'time.month': '{n}mo ago',
       'time.year': '{n}y ago',
+      'time.minuteShort': '{n}m',
+      'time.hourShort': '{n}h',
+      'time.dayShort': '{n}d',
+      'time.monthShort': '{n}mo',
+      'time.yearShort': '{n}y',
       'ctx.alert20.title': 'Context {percent}% used',
       'ctx.alert20.body': '25% reached. Delivered content is archived and replaced by one-line index pointers; read it back by keyword when needed.',
       'ctx.alert40.title': 'Context {percent}% used - wrap up now',
@@ -255,6 +287,26 @@ window.__ModuleLoader__.load({
       const months = Math.floor(days / 30);
       if (months < 12) return t('time.month', { n: months });
       return t('time.year', { n: Math.floor(months / 12) });
+    }
+
+    /**
+     * Sidebar rows only: a 280px sidebar leaves ~30px for the stamp, so the
+     * full "13 分钟前" wording would push the session title into an ellipsis.
+     * The panel and the hover card keep `relativeTime`.
+     */
+    function relativeTimeCompact(updatedAt, t) {
+      const diff = Date.now() - toMs(updatedAt);
+      if (!Number.isFinite(diff) || diff < 0) return '';
+      const minutes = Math.floor(diff / 60000);
+      if (minutes < 1) return t('time.now');
+      if (minutes < 60) return t('time.minuteShort', { n: minutes });
+      const hours = Math.floor(minutes / 60);
+      if (hours < 24) return t('time.hourShort', { n: hours });
+      const days = Math.floor(hours / 24);
+      if (days < 30) return t('time.dayShort', { n: days });
+      const months = Math.floor(days / 30);
+      if (months < 12) return t('time.monthShort', { n: months });
+      return t('time.yearShort', { n: Math.floor(months / 12) });
     }
 
     function emptyState() {
@@ -696,6 +748,224 @@ window.__ModuleLoader__.load({
     }
 
     // ------------------------------------------------------------------
+    // row context-menu request store (rendered by shell.overlay)
+    // ------------------------------------------------------------------
+    let rowMenuState = null;
+    const rowMenuListeners = new Set();
+
+    function getRowMenuState() {
+      return rowMenuState;
+    }
+
+    function subscribeRowMenu(listener) {
+      rowMenuListeners.add(listener);
+      return function unsubscribe() {
+        rowMenuListeners.delete(listener);
+      };
+    }
+
+    function emitRowMenu() {
+      const snapshot = Array.from(rowMenuListeners);
+      for (const listener of snapshot) {
+        try {
+          listener();
+        } catch (error) {
+          // Ignore one broken subscriber.
+        }
+      }
+    }
+
+    function openRowMenu(payload) {
+      rowMenuState = {
+        kind: 'session',
+        sessionId: payload.sessionId,
+        title: payload.title || '',
+        x: Number(payload.x) || 0,
+        y: Number(payload.y) || 0,
+        archived: payload.archived === true,
+        movable: payload.movable !== false,
+        cwd: payload.cwd ? String(payload.cwd) : '',
+        trigger: payload.trigger || null,
+      };
+      emitRowMenu();
+    }
+
+    function closeRowMenu() {
+      if (rowMenuState === null) return;
+      rowMenuState = null;
+      emitRowMenu();
+    }
+
+    function openWorkspaceMenu(payload) {
+      rowMenuState = {
+        kind: 'workspace',
+        workspaceId: payload.workspaceId,
+        title: payload.title || '',
+        x: Number(payload.x) || 0,
+        y: Number(payload.y) || 0,
+        cwd: payload.path ? String(payload.path) : '',
+        collapsed: payload.collapsed === true,
+        actions: payload.actions && typeof payload.actions === 'object' ? payload.actions : {},
+        trigger: payload.trigger || null,
+      };
+      emitRowMenu();
+    }
+
+    // ------------------------------------------------------------------
+    // open-in-app catalog / launcher
+    // ------------------------------------------------------------------
+    const OPEN_IN_APP_NAMES = {
+      vscode: 'Visual Studio Code',
+      cursor: 'Cursor',
+      explorer: '文件资源管理器',
+      finder: 'Finder',
+      terminal: '终端',
+      windowsterminal: 'Windows Terminal',
+      gitbash: 'Git Bash',
+      zed: 'Zed',
+      windsurf: 'Windsurf',
+      sublimetext: 'Sublime Text',
+      intellij: 'IntelliJ IDEA',
+      pycharm: 'PyCharm',
+      webstorm: 'WebStorm',
+      github: 'GitHub Desktop',
+      sourcetree: 'Sourcetree',
+      gitkraken: 'GitKraken',
+      xcode: 'Xcode',
+      androidstudio: 'Android Studio',
+    };
+    let openInAppsCache = null;
+    let openInAppsPromise = null;
+
+    function openInAppName(appId) {
+      const key = String(appId);
+      return OPEN_IN_APP_NAMES[key] || key;
+    }
+
+    function loadOpenInApps() {
+      if (openInAppsCache !== null) return Promise.resolve(openInAppsCache);
+      if (openInAppsPromise) return openInAppsPromise;
+      openInAppsPromise = fetch('open-in-app/apps', {
+        headers: { accept: 'application/json' },
+        credentials: 'same-origin',
+      })
+        .then((response) => (response && response.ok ? response.json() : null))
+        .then((data) => {
+          const list = data && Array.isArray(data.apps) ? data.apps : [];
+          const seen = new Set();
+          const apps = [];
+          for (const value of list) {
+            if (typeof value !== 'string' || !value || seen.has(value)) continue;
+            seen.add(value);
+            apps.push(value);
+          }
+          openInAppsCache = apps;
+          return apps;
+        })
+        .catch(() => {
+          openInAppsCache = [];
+          return [];
+        })
+        .finally(() => {
+          openInAppsPromise = null;
+        });
+      return openInAppsPromise;
+    }
+
+    function launchOpenInApp(appId, directory) {
+      return fetch('open-in-app/open', {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          accept: 'application/json',
+        },
+        credentials: 'same-origin',
+        body: JSON.stringify({ app: String(appId), path: String(directory) }),
+      }).then((response) => {
+        if (!response || !response.ok) throw new Error('open-in-app failed');
+        return true;
+      });
+    }
+
+    // ------------------------------------------------------------------
+    // inline-rename request store
+    // ------------------------------------------------------------------
+    let renameRequestId = null;
+    const renameRequestListeners = new Set();
+
+    function getRenameRequest() {
+      return renameRequestId;
+    }
+
+    function subscribeRenameRequest(listener) {
+      renameRequestListeners.add(listener);
+      return function unsubscribe() {
+        renameRequestListeners.delete(listener);
+      };
+    }
+
+    function emitRenameRequest() {
+      const snapshot = Array.from(renameRequestListeners);
+      for (const listener of snapshot) {
+        try {
+          listener();
+        } catch (error) {
+          // Ignore one broken subscriber.
+        }
+      }
+    }
+
+    function requestRename(sessionId) {
+      renameRequestId = String(sessionId);
+      emitRenameRequest();
+    }
+
+    function clearRenameRequest(sessionId) {
+      if (renameRequestId !== String(sessionId)) return;
+      renameRequestId = null;
+      emitRenameRequest();
+    }
+
+    // ------------------------------------------------------------------
+    // workspace inline-rename request store
+    // ------------------------------------------------------------------
+    let workspaceRenameRequestId = null;
+    const workspaceRenameListeners = new Set();
+
+    function getWorkspaceRenameRequest() {
+      return workspaceRenameRequestId;
+    }
+
+    function subscribeWorkspaceRename(listener) {
+      workspaceRenameListeners.add(listener);
+      return function unsubscribe() {
+        workspaceRenameListeners.delete(listener);
+      };
+    }
+
+    function emitWorkspaceRename() {
+      const snapshot = Array.from(workspaceRenameListeners);
+      for (const listener of snapshot) {
+        try {
+          listener();
+        } catch (error) {
+          // Ignore one broken subscriber.
+        }
+      }
+    }
+
+    function requestWorkspaceRename(workspaceId) {
+      workspaceRenameRequestId = String(workspaceId);
+      emitWorkspaceRename();
+    }
+
+    function clearWorkspaceRenameRequest(workspaceId) {
+      if (workspaceRenameRequestId !== String(workspaceId)) return;
+      workspaceRenameRequestId = null;
+      emitWorkspaceRename();
+    }
+
+    // ------------------------------------------------------------------
     // store hooks
     // ------------------------------------------------------------------
     const useSyncStore = typeof React.useSyncExternalStore === 'function'
@@ -713,6 +983,18 @@ window.__ModuleLoader__.load({
 
     function useMoveRequest() {
       return useSyncStore(subscribeOverlay, getOverlayRequest);
+    }
+
+    function useRowMenuState() {
+      return useSyncStore(subscribeRowMenu, getRowMenuState);
+    }
+
+    function useRenameRequest() {
+      return useSyncStore(subscribeRenameRequest, getRenameRequest);
+    }
+
+    function useWorkspaceRenameRequest() {
+      return useSyncStore(subscribeWorkspaceRename, getWorkspaceRenameRequest);
     }
 
     // Safe fallbacks when a standard root hook is unavailable.
@@ -1107,10 +1389,14 @@ window.__ModuleLoader__.load({
 
     /** Sidebar cost cell: the skin exposes per-session spend in 1e-6 yuan; two digits either side of the point. */
     const COST_ENDPOINT = '/dsh-claude-style/session-cost';
+    const COST_UNKNOWN = '—';
     function formatCny(cny) {
       if (typeof cny !== 'number' || !isFinite(cny) || cny < 0) return '—';
       const parts = (cny / 1e6).toFixed(2).split('.');
       return '¥' + parts[0].padStart(2, '0') + '.' + parts[1];
+    }
+    function hasCost(cost) {
+      return formatCny(cost) !== COST_UNKNOWN;
     }
 
     /**
@@ -1297,6 +1583,7 @@ window.__ModuleLoader__.load({
       const [collapsed, setCollapsed] = useState({});
 
       const items = workspaceState && Array.isArray(workspaceState.items) ? workspaceState.items : [];
+
       const archived = useMemo(() => {
         const source = workspaceState && Array.isArray(workspaceState.archivedSessionIds)
           ? workspaceState.archivedSessionIds
@@ -1333,7 +1620,9 @@ window.__ModuleLoader__.load({
         const rows = [];
         for (const id of workspace.sessionIds) {
           const summary = byId[id];
-          if (!summary || summary.blank || archived.has(id)) continue;
+          // Subagent sessions are nested under their owner in the sidebar and are
+          // not listed as independent rows in the polish panel either.
+          if (!summary || summary.blank || summary.origin === 'subagent' || archived.has(id)) continue;
           rows.push(summary);
         }
         rows.sort((left, right) => toMs(right.updatedAt) - toMs(left.updatedAt));
@@ -1733,21 +2022,453 @@ window.__ModuleLoader__.load({
     }
 
     // ------------------------------------------------------------------
+    // session row context menu (shell.overlay layer)
+    // ------------------------------------------------------------------
+    function RowMenuOverlay(props) {
+      const t = props.t;
+      const state = useRowMenuState();
+      const [pos, setPos] = useState(null);
+      const [apps, setApps] = useState([]);
+      const [openError, setOpenError] = useState('');
+      const [submenuOpen, setSubmenuOpen] = useState(false);
+      const [submenuPos, setSubmenuPos] = useState(null);
+      const [workspaceDeletePending, setWorkspaceDeletePending] = useState(false);
+      const [workspaceDeleting, setWorkspaceDeleting] = useState(false);
+      const menuRef = useRef(null);
+      const rootRef = useRef(null);
+      const submenuRef = useRef(null);
+      const openInRef = useRef(null);
+      const submenuTimerRef = useRef(null);
+      const submenuOpenRef = useRef(false);
+      const focusSubmenuRef = useRef(false);
+      const suppressOpenOnFocusRef = useRef(false);
+
+      useLayoutEffect(() => {
+        if (!state) {
+          setPos(null);
+          return;
+        }
+        const node = menuRef.current;
+        if (!node) return;
+        const rect = node.getBoundingClientRect();
+        const width = Math.max(rect.width, 200);
+        const height = rect.height;
+        const margin = 8;
+        const gap = 4;
+        let top = state.y;
+        if (top + height > window.innerHeight - margin) top = state.y - height - gap;
+        top = Math.max(margin, Math.min(top, window.innerHeight - height - margin));
+        let left = state.x;
+        left = Math.max(margin, Math.min(left, window.innerWidth - width - margin));
+        setPos({ top, left });
+      }, [state, apps.length]);
+
+      useLayoutEffect(() => {
+        if (!state) return;
+        const node = menuRef.current;
+        const first = node && node.querySelector('[role="menuitem"]');
+        if (first && typeof first.focus === 'function') first.focus();
+      }, [state]);
+
+      useLayoutEffect(() => {
+        if (!submenuOpen) {
+          setSubmenuPos(null);
+          return;
+        }
+        const item = openInRef.current;
+        const node = submenuRef.current;
+        if (!item || !node) return;
+        const itemRect = item.getBoundingClientRect();
+        const rect = node.getBoundingClientRect();
+        const width = Math.max(rect.width, 200);
+        const height = rect.height;
+        const margin = 8;
+        let left = itemRect.right + 2;
+        if (left + width > window.innerWidth - margin) left = itemRect.left - width - 2;
+        left = Math.max(margin, Math.min(left, window.innerWidth - width - margin));
+        let top = itemRect.top;
+        if (top + height > window.innerHeight - margin) top = window.innerHeight - height - margin;
+        top = Math.max(margin, Math.min(top, window.innerHeight - height - margin));
+        setSubmenuPos({ top, left });
+        if (focusSubmenuRef.current) {
+          focusSubmenuRef.current = false;
+          const first = node.querySelector('[role="menuitem"]');
+          if (first && typeof first.focus === 'function') first.focus();
+        }
+      }, [submenuOpen, pos, apps.length, openError]);
+
+      useEffect(() => {
+        if (submenuTimerRef.current !== null) {
+          window.clearTimeout(submenuTimerRef.current);
+          submenuTimerRef.current = null;
+        }
+        submenuOpenRef.current = false;
+        setSubmenuOpen(false);
+        setSubmenuPos(null);
+        setOpenError('');
+        setWorkspaceDeletePending(false);
+        setWorkspaceDeleting(false);
+        focusSubmenuRef.current = false;
+      }, [state]);
+
+      useEffect(() => {
+        if (!state || !state.cwd) {
+          setApps([]);
+          return undefined;
+        }
+        if (openInAppsCache !== null) {
+          setApps(openInAppsCache);
+          return undefined;
+        }
+        let alive = true;
+        setApps([]);
+        loadOpenInApps().then((list) => {
+          if (alive) setApps(list);
+        });
+        return () => {
+          alive = false;
+        };
+      }, [state]);
+
+      useEffect(() => {
+        return () => {
+          if (submenuTimerRef.current !== null) {
+            window.clearTimeout(submenuTimerRef.current);
+            submenuTimerRef.current = null;
+          }
+        };
+      }, []);
+
+      const clearSubmenuTimer = () => {
+        if (submenuTimerRef.current !== null) {
+          window.clearTimeout(submenuTimerRef.current);
+          submenuTimerRef.current = null;
+        }
+      };
+      const openInSubmenu = (focusFirst) => {
+        clearSubmenuTimer();
+        setOpenError('');
+        if (submenuOpen) {
+          if (focusFirst) {
+            const first = submenuRef.current && submenuRef.current.querySelector('[role="menuitem"]');
+            if (first && typeof first.focus === 'function') first.focus();
+          }
+          return;
+        }
+        submenuOpenRef.current = true;
+        focusSubmenuRef.current = focusFirst === true;
+        setSubmenuOpen(true);
+      };
+      const closeInSubmenu = (focusParent) => {
+        clearSubmenuTimer();
+        submenuOpenRef.current = false;
+        setSubmenuOpen(false);
+        setSubmenuPos(null);
+        setOpenError('');
+        if (focusParent) {
+          const item = openInRef.current;
+          if (item) {
+            suppressOpenOnFocusRef.current = true;
+            item.focus();
+            suppressOpenOnFocusRef.current = false;
+          }
+        }
+      };
+      const scheduleInSubmenuClose = () => {
+        clearSubmenuTimer();
+        submenuTimerRef.current = window.setTimeout(() => {
+          submenuTimerRef.current = null;
+          submenuOpenRef.current = false;
+          setSubmenuOpen(false);
+          setOpenError('');
+        }, 120);
+      };
+
+      useEffect(() => {
+        if (!state) return undefined;
+        const close = () => closeRowMenu();
+        const onPointerDown = (event) => {
+          if (state.trigger && event.target instanceof Node && state.trigger.contains(event.target)) return;
+          const root = rootRef.current;
+          if (root && event.target instanceof Node && root.contains(event.target)) return;
+          close();
+        };
+        const onKeyDown = (event) => {
+          if (event.key !== 'Escape' && event.key !== 'ArrowLeft') return;
+          if (submenuOpenRef.current) {
+            event.preventDefault();
+            event.stopPropagation();
+            closeInSubmenu(true);
+            return;
+          }
+          if (event.key === 'Escape') {
+            event.preventDefault();
+            event.stopPropagation();
+            close();
+          }
+        };
+        const onScroll = () => close();
+        const onResize = () => close();
+        document.addEventListener('pointerdown', onPointerDown, true);
+        document.addEventListener('keydown', onKeyDown, true);
+        window.addEventListener('scroll', onScroll, { capture: true, passive: true });
+        window.addEventListener('resize', onResize);
+        return () => {
+          document.removeEventListener('pointerdown', onPointerDown, true);
+          document.removeEventListener('keydown', onKeyDown, true);
+          window.removeEventListener('scroll', onScroll, true);
+          window.removeEventListener('resize', onResize);
+        };
+      }, [state]);
+
+      if (!state) return null;
+
+      const isWorkspace = state.kind === 'workspace';
+      const archived = state.archived === true;
+      const canOpenIn = Boolean(state.cwd && apps.length > 0);
+      const launch = async (appId) => {
+        setOpenError('');
+        try {
+          await launchOpenInApp(appId, state.cwd);
+          closeRowMenu();
+        } catch (error) {
+          setOpenError(t('menu.openFailed'));
+        }
+      };
+      const closeThen = (action) => () => {
+        const sessionId = state.sessionId;
+        closeRowMenu();
+        try {
+          action(sessionId);
+        } catch (error) {
+          // Keep the row usable if an action target is unavailable.
+        }
+      };
+      const closeAction = (action) => () => {
+        closeRowMenu();
+        try {
+          action();
+        } catch (error) {
+          // Keep the menu usable if an action target is unavailable.
+        }
+      };
+      const closeOtherSubmenus = () => closeInSubmenu(false);
+      const openInItem = canOpenIn ? h('button', {
+        key: 'open-in',
+        ref: openInRef,
+        type: 'button',
+        role: 'menuitem',
+        className: 'dssx-pop-item dssx-rowmenu-open-in',
+        'data-open-in': 'true',
+        'aria-haspopup': 'menu',
+        'aria-expanded': submenuOpen ? 'true' : 'false',
+        onPointerEnter: () => openInSubmenu(false),
+        onPointerLeave: (event) => {
+          const related = event.relatedTarget;
+          const submenu = submenuRef.current;
+          if (submenu && related instanceof Node && submenu.contains(related)) return;
+          scheduleInSubmenuClose();
+        },
+        onFocus: () => {
+          if (suppressOpenOnFocusRef.current) {
+            suppressOpenOnFocusRef.current = false;
+            return;
+          }
+          openInSubmenu(false);
+        },
+        onClick: (event) => {
+          event.stopPropagation();
+          openInSubmenu(true);
+        },
+        onKeyDown: (event) => {
+          if (event.key !== 'ArrowRight' && event.key !== 'Enter') return;
+          event.preventDefault();
+          event.stopPropagation();
+          openInSubmenu(true);
+        },
+      },
+        h('span', { className: 'dssx-rowmenu-open-label' }, t('menu.openIn')),
+        h('span', { className: 'dssx-rowmenu-chevron', 'aria-hidden': 'true' }, '\u203A')
+      ) : null;
+      const sessionItems = [
+        h('button', {
+          key: 'open',
+          type: 'button',
+          role: 'menuitem',
+          className: 'dssx-pop-item',
+          onClick: closeThen((sessionId) => {
+            if (typeof props.openSession === 'function') props.openSession(sessionId);
+          }),
+        }, t('row.open')),
+        h('button', {
+          key: 'rename',
+          type: 'button',
+          role: 'menuitem',
+          className: 'dssx-pop-item',
+          onClick: closeThen((sessionId) => requestRename(sessionId)),
+        }, t('row.rename')),
+        state.movable ? h('button', {
+          key: 'move',
+          type: 'button',
+          role: 'menuitem',
+          className: 'dssx-pop-item',
+          onClick: closeThen((sessionId) => {
+            openMoveDialog({ sessionId, title: state.title });
+          }),
+        }, t('menu.moveToSection')) : null,
+        openInItem,
+        h('button', {
+          key: 'archive',
+          type: 'button',
+          role: 'menuitem',
+          className: 'dssx-pop-item',
+          onClick: closeThen((sessionId) => {
+            if (archived) {
+              if (typeof props.unarchiveSession === 'function') props.unarchiveSession(sessionId);
+            } else if (typeof props.archiveSession === 'function') {
+              props.archiveSession(sessionId);
+            }
+          }),
+        }, archived ? t('row.unarchive') : t('row.archive')),
+        h('button', {
+          key: 'copy',
+          type: 'button',
+          role: 'menuitem',
+          className: 'dssx-pop-item',
+          onClick: closeThen((sessionId) => {
+            try {
+              navigator.clipboard.writeText(String(sessionId));
+            } catch (error) {
+              // Clipboard access can be denied; the row itself still works.
+            }
+          }),
+        }, t('row.copyId')),
+      ].filter(Boolean);
+      const workspaceItems = [
+        h('button', {
+          key: 'ws-new-session',
+          type: 'button',
+          role: 'menuitem',
+          className: 'dssx-pop-item',
+          onClick: closeAction(() => {
+            if (typeof state.actions.newSession === 'function') state.actions.newSession();
+          }),
+        }, t('browser.newSession')),
+        h('button', {
+          key: 'ws-add-group',
+          type: 'button',
+          role: 'menuitem',
+          className: 'dssx-pop-item',
+          onClick: closeAction(() => {
+            if (typeof state.actions.addGroup === 'function') state.actions.addGroup();
+          }),
+        }, t('browser.addGroup')),
+        h('button', {
+          key: 'ws-rename',
+          type: 'button',
+          role: 'menuitem',
+          className: 'dssx-pop-item',
+          onClick: closeAction(() => requestWorkspaceRename(state.workspaceId)),
+        }, t('row.rename')),
+        openInItem,
+        h('button', {
+          key: 'ws-toggle',
+          type: 'button',
+          role: 'menuitem',
+          className: 'dssx-pop-item',
+          onClick: closeAction(() => {
+            if (typeof state.actions.toggle === 'function') state.actions.toggle();
+          }),
+        }, state.collapsed ? t('browser.expand') : t('browser.collapse')),
+        h('button', {
+          key: 'ws-delete',
+          type: 'button',
+          role: 'menuitem',
+          className: cx('dssx-pop-item', workspaceDeletePending && 'dssx-danger'),
+          disabled: workspaceDeleting,
+          onClick: async () => {
+            if (!workspaceDeletePending) {
+              setWorkspaceDeletePending(true);
+              return;
+            }
+            if (workspaceDeleting) return;
+            setWorkspaceDeleting(true);
+            try {
+              if (typeof state.actions.remove === 'function') await state.actions.remove();
+              closeRowMenu();
+            } catch (error) {
+              setWorkspaceDeleting(false);
+            }
+          },
+        }, workspaceDeletePending ? t('browser.deleteWorkspaceConfirm') : t('browser.deleteWorkspace')),
+      ].filter(Boolean);
+      const items = isWorkspace ? workspaceItems : sessionItems;
+
+      const submenu = submenuOpen ? h('div', {
+        className: 'dssx-rowmenu dssx-rowmenu-sub',
+        role: 'menu',
+        ref: submenuRef,
+        style: submenuPos
+          ? { top: submenuPos.top + 'px', left: submenuPos.left + 'px' }
+          : { top: '8px', left: '8px' },
+        onPointerDown: (event) => event.stopPropagation(),
+        onPointerEnter: () => clearSubmenuTimer(),
+        onPointerLeave: (event) => {
+          const related = event.relatedTarget;
+          const item = openInRef.current;
+          if (item && related instanceof Node && item.contains(related)) return;
+          const node = submenuRef.current;
+          if (node && related instanceof Node && node.contains(related)) return;
+          scheduleInSubmenuClose();
+        },
+      },
+        ...apps.map((appId) => h('button', {
+          type: 'button',
+          role: 'menuitem',
+          key: appId,
+          className: 'dssx-pop-item',
+          title: appId,
+          onClick: () => {
+            launch(appId);
+          },
+        }, openInAppName(appId))),
+        openError ? h('div', { key: 'open-error', className: 'dssx-rowmenu-error' }, openError) : null
+      ) : null;
+
+      return h('div', { className: 'dssx-rowmenu-root', ref: rootRef },
+        h('div', {
+          className: 'dssx-rowmenu',
+          role: 'menu',
+          ref: menuRef,
+          style: pos
+            ? { top: pos.top + 'px', left: pos.left + 'px' }
+            : {
+              top: Math.max(8, Math.min(state.y, window.innerHeight - 60)) + 'px',
+              left: Math.max(8, Math.min(state.x, window.innerWidth - 232)) + 'px',
+            },
+          onPointerDown: (event) => event.stopPropagation(),
+          onPointerOver: (event) => {
+            const target = event.target;
+            if (target && target.closest && target.closest('[data-open-in="true"]')) return;
+            closeOtherSubmenus();
+          },
+          onFocus: (event) => {
+            const target = event.target;
+            if (target && target.closest && target.closest('[data-open-in="true"]')) return;
+            closeOtherSubmenus();
+          },
+        }, items),
+        submenu
+      );
+    }
+
+    // ------------------------------------------------------------------
     // sidebar browser (stage B): workspaces -> groups -> sessions
     // ------------------------------------------------------------------
     /** Same hook-context factory shape the shipped browser declares for its menu rows. */
     const menuOpenStateFactory = (_standard, state) => () => state;
 
     const EMPTY_BUCKET = { sections: [], assignments: {} };
-
-    function toggleKey(map, setMap, key) {
-      setMap((current) => {
-        const next = Object.assign({}, current);
-        if (next[key]) delete next[key];
-        else next[key] = true;
-        return next;
-      });
-    }
 
     /**
      * Session state marker: a stacked control — a solid four-corner arrow (tip,
@@ -1872,8 +2593,7 @@ window.__ModuleLoader__.load({
               h('path', { d: outerAccentArc, fill: 'none', stroke: displayColor || accent, strokeWidth: 2.5, strokeLinecap: 'butt', className: sweepClass, style: sweepStyle(outerArcLen) }),
               h('path', { d: innerMutedArc, fill: 'none', stroke: displayColor || muted, strokeWidth: 1.25, strokeLinecap: 'round', className: sweepClass, style: sweepStyle(innerArcLen) }),
               h('path', { d: innerAccentArc, fill: 'none', stroke: displayColor || accent, strokeWidth: 1.25, strokeLinecap: 'round', className: sweepClass, style: sweepStyle(innerArcLen) }),
-              ...innerDots))
-        ));
+              ...innerDots))));
     }
 
     // Ring caret for group/workspace headers. Geometry is the session row's own
@@ -1953,51 +2673,37 @@ window.__ModuleLoader__.load({
       const renderSlot = props.renderSlot;
       const openSession = props.openSession;
       const renameSession = props.renameSession;
-      const [menuPos, setMenuPos] = useState(null);
       // Inline rename, same interaction as a group header: the menu row swaps the
       // title for an input in place; Enter saves, Escape cancels.
       const [editing, setEditing] = useState(false);
       const [editingName, setEditingName] = useState('');
       const [editingError, setEditingError] = useState('');
-      const menuRef = useRef(null);
-      const title = summary.title || (summary.blank ? t('newSession') : t('untitled'));
+      // Subagent rows often only carry `displayTitle` (the catalog label), so they
+      // fall back to it before the generic untitled text. Normal rows keep the
+      // original title logic.
+      const isSubagentRow = props.nested === true || summary.origin === 'subagent';
+      const title = (isSubagentRow ? (summary.title || summary.displayTitle) : summary.title)
+        || (summary.blank ? t('newSession') : t('untitled'));
+      const timeFull = relativeTime(summary.updatedAt, t);
+      const timeShort = relativeTimeCompact(summary.updatedAt, t);
+      const subagentCount = typeof props.subagentCount === 'number' && props.subagentCount > 0 ? props.subagentCount : 0;
+      const rowHasCost = hasCost(props.cost);
+      const showCost = subagentCount === 0 && rowHasCost;
+      const subagentTitle = subagentCount > 0
+        ? (props.subagentOpen === true ? t('row.subagentsCollapse') : t('row.subagentsExpand'))
+          + ' · ' + t('row.subagents', { n: subagentCount })
+        : undefined;
 
+      // The browser forwards a rename request; only the matching row enters
+      // inline editing, then clears the request so it cannot reopen later.
       useEffect(() => {
-        if (!menuPos) return undefined;
-        const close = (event) => {
-          const node = menuRef.current;
-          if (node && event.target instanceof Node && node.contains(event.target)) return;
-          setMenuPos(null);
-        };
-        document.addEventListener('pointerdown', close, true);
-        return () => document.removeEventListener('pointerdown', close, true);
-      }, [menuPos]);
-
-      const openMenu = (event) => {
-        event.stopPropagation();
-        if (menuPos) {
-          setMenuPos(null);
-          return;
-        }
-        const rect = event.currentTarget.getBoundingClientRect();
-        setMenuPos({
-          top: rect.bottom + 4,
-          left: Math.max(8, Math.min(rect.right - 200, window.innerWidth - 208)),
-        });
-      };
-
-      const toggleArchive = () => {
-        setMenuPos(null);
-        try {
-          if (props.archived) {
-            if (typeof props.unarchiveSession === 'function') props.unarchiveSession(summary.id);
-          } else if (typeof props.archiveSession === 'function') {
-            props.archiveSession(summary.id);
-          }
-        } catch (error) {
-          // A Host refusal (running work) surfaces through the Host notification channel.
-        }
-      };
+        if (!props.renameRequestId) return;
+        if (String(props.renameRequestId) !== String(summary.id)) return;
+        setEditingError('');
+        setEditingName(summary.title || summary.displayTitle || '');
+        setEditing(true);
+        clearRenameRequest(summary.id);
+      }, [props.renameRequestId, summary.id]);
 
       const commitRename = async () => {
         const next = editingName.trim();
@@ -2014,75 +2720,34 @@ window.__ModuleLoader__.load({
         }
       };
 
-      const menuItems = [
-        h('button', {
-          type: 'button',
-          role: 'menuitem',
-          className: 'dssx-pop-item',
-          onClick: () => {
-            setMenuPos(null);
-            openSession(summary.id);
-          },
-        }, t('row.open')),
-        h('button', {
-          type: 'button',
-          role: 'menuitem',
-          className: 'dssx-pop-item',
-          onClick: () => {
-            setMenuPos(null);
-            setEditingError('');
-            setEditingName(summary.title || '');
-            setEditing(true);
-          },
-        }, t('row.rename')),
-      ];
-      if (props.orphan !== true) {
-        menuItems.push(h('button', {
-          type: 'button',
-          role: 'menuitem',
-          className: 'dssx-pop-item',
-          onClick: () => {
-            setMenuPos(null);
-            openMoveDialog({ sessionId: summary.id, title: summary.title || '' });
-          },
-        }, t('menu.moveToSection')));
-      }
-      menuItems.push(
-        h('button', {
-          type: 'button',
-          role: 'menuitem',
-          className: 'dssx-pop-item',
-          onClick: toggleArchive,
-        }, props.archived ? t('row.unarchive') : t('row.archive')),
-        h('button', {
-          type: 'button',
-          role: 'menuitem',
-          className: 'dssx-pop-item',
-          onClick: () => {
-            setMenuPos(null);
-            try {
-              navigator.clipboard.writeText(String(summary.id));
-            } catch (error) {
-              // Clipboard access can be denied; the row itself still works.
-            }
-          },
-        }, t('row.copyId')),
-      );
-
       return h('div', {
-        className: cx('dssx-browser-row', current && 'dssx-current', props.dragging && 'dssx-dragging'),
+        className: cx('dssx-browser-row', current && 'dssx-current', props.dragging && 'dssx-dragging', props.nested === true && 'dssx-nested-row', subagentCount > 0 && 'dssx-has-subagents', subagentCount === 0 && !rowHasCost && 'dssx-no-cost'),
         'data-flip': props.flipKey,
         // While renaming, the row is not a drag source and its click must not
-        // open the session: the input owns the pointer.
-        draggable: editing !== true,
+        // open the session: the input owns the pointer. Subagent rows are never
+        // drag sources: their owner row is the one that moves between groups.
+        draggable: editing !== true && props.nested !== true,
         // Whole-row click opens the session. Clicks on the row's own buttons
         // (open/actions/menu items) keep their own handlers.
         onClick: (event) => {
           if (editing) return;
           if (props.dragging === true) return;
           const target = event.target;
-          if (target && typeof target.closest === 'function' && target.closest('button, [role="menuitem"], input, textarea, select')) return;
+          if (target && typeof target.closest === 'function' && target.closest('button, [role="menuitem"], input, textarea, select, [role="menu"]')) return;
           openSession(summary.id);
+        },
+        onContextMenu: (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          openRowMenu({
+            sessionId: summary.id,
+            title,
+            x: event.clientX,
+            y: event.clientY,
+            archived: props.archived === true,
+            movable: !isSubagentRow,
+            ...(summary.cwd ? { cwd: String(summary.cwd) } : {}),
+          });
         },
         onDragStart: (event) => {
           if (typeof props.onDragStart === 'function') props.onDragStart(event, summary.id);
@@ -2143,9 +2808,30 @@ window.__ModuleLoader__.load({
             )
         ),
         h('div', { className: 'dssx-browser-tail' },
-          h('span', { className: 'dssx-row-cost' }, formatCny(props.cost)),
+          // The fold entry replaces the cost badge in the first slot for rows
+          // that own subagents; leaf rows keep the normal cost badge. The entry
+          // lives in the hover/focus bar so it does not consume title width and
+          // stays reachable once the branch is expanded.
+          subagentCount > 0
+            ? h('button', {
+              type: 'button',
+              className: cx('dssx-icon-btn', 'dssx-subagent-toggle', props.subagentOpen === true && 'dssx-subagent-open'),
+              title: subagentTitle,
+              'aria-label': subagentTitle,
+              'aria-expanded': props.subagentOpen === true ? 'true' : 'false',
+              onClick: (event) => {
+                event.stopPropagation();
+                if (typeof props.onToggleSubagents === 'function') props.onToggleSubagents(event);
+              },
+            },
+              h(IconChevron, { size: 8, open: props.subagentOpen === true }),
+              subagentCount < 100 ? h('span', { className: 'dssx-subagent-count' }, subagentCount) : null
+            )
+            : (showCost ? h('span', { className: 'dssx-row-cost' }, formatCny(props.cost)) : null),
           h('div', { className: 'dssx-browser-actions' },
-          h('button', {
+          // Nested subagent rows are not orderable inside the group; their owner
+          // row carries the drag/order controls.
+          props.nested === true ? null : h('button', {
             type: 'button',
             className: 'dssx-icon-btn dssx-order-btn',
             title: t('row.moveUp'),
@@ -2156,7 +2842,7 @@ window.__ModuleLoader__.load({
               if (typeof props.onMoveUp === 'function') props.onMoveUp();
             },
           }, h(IconArrowUp, { size: 13 })),
-          h('button', {
+          props.nested === true ? null : h('button', {
             type: 'button',
             className: 'dssx-icon-btn dssx-order-btn',
             title: t('row.moveDown'),
@@ -2176,24 +2862,142 @@ window.__ModuleLoader__.load({
             className: 'dssx-icon-btn',
             'aria-label': t('row.more'),
             'aria-haspopup': 'menu',
-            'aria-expanded': menuPos ? 'true' : 'false',
-            onClick: openMenu,
+            onClick: (event) => {
+              event.stopPropagation();
+              if (rowMenuState && rowMenuState.sessionId === String(summary.id) && rowMenuState.trigger) {
+                closeRowMenu();
+                return;
+              }
+              const rect = event.currentTarget.getBoundingClientRect();
+              openRowMenu({
+                sessionId: summary.id,
+                title,
+                x: rect.left,
+                y: rect.bottom,
+                archived: props.archived === true,
+                movable: !isSubagentRow,
+                ...(summary.cwd ? { cwd: String(summary.cwd) } : {}),
+                trigger: event.currentTarget,
+              });
+            },
           }, h(IconMore, { size: 16 }))
         )),
-        h('span', { className: 'dssx-browser-time' }, relativeTime(summary.updatedAt, t)),
-        menuPos ? h('div', {
-          className: 'dssx-rowmenu',
-          role: 'menu',
-          ref: menuRef,
-          style: { top: menuPos.top + 'px', left: menuPos.left + 'px' },
-          onPointerDown: (event) => event.stopPropagation(),
-        }, menuItems) : null
+        h('span', { className: 'dssx-browser-time', title: timeFull || undefined }, timeShort)
+      );
+    }
+
+    // Subagent sessions are rendered as a foldable tree under their owner row.
+    // The cap (and the ancestor path check below) keeps malformed parent-id
+    // chains (`parentId`; Host wire `parentSessionId`) from recursing forever;
+    // four nested levels are far beyond what the sidebar can show at 280px anyway.
+    const MAX_SUBAGENT_DEPTH = 4;
+
+    function subagentSubtreeHasMain(summary, childrenOf, mainSessionId, seen) {
+      const id = String(summary.id);
+      if (id === String(mainSessionId)) return true;
+      if (seen.has(id)) return false;
+      const next = new Set(seen);
+      next.add(id);
+      const kids = childrenOf(id) || [];
+      return kids.some((child) => subagentSubtreeHasMain(child, childrenOf, mainSessionId, next));
+    }
+
+    /**
+     * One owner row + (when expanded) its subagent children. Kept as a module
+     * component so React does not remount the nested rows on every parent
+     * render; the fold state lives in the browser component and is passed down.
+     */
+    function SessionRowTree(props) {
+      const rowProps = props.rowProps;
+      const summary = rowProps.summary;
+      const summaryId = String(summary.id);
+      const depth = typeof props.depth === 'number' ? props.depth : 0;
+      const ancestors = props.ancestors instanceof Set ? props.ancestors : new Set();
+      const children = depth < MAX_SUBAGENT_DEPTH
+        ? (props.childrenOf(summaryId) || []).filter((child) => {
+          const childId = String(child.id);
+          return childId !== summaryId && !ancestors.has(childId);
+        })
+        : [];
+      const open = children.length > 0
+        && typeof props.expandedSubagents.has === 'function'
+        && props.expandedSubagents.has(summaryId);
+      const hasMainBelow = children.some((child) => subagentSubtreeHasMain(
+        child, props.childrenOf, props.mainSessionId, new Set([summaryId]),
+      ));
+      // A parent whose child is the open conversation keeps a "current" hint on
+      // the parent row, so the collapsed branch is still easy to find.
+      const current = rowProps.current === true
+        || summaryId === String(props.mainSessionId)
+        || hasMainBelow;
+      const nextAncestors = new Set(ancestors);
+      nextAncestors.add(summaryId);
+
+      const childRowProps = (child) => ({
+        t: props.t,
+        cost: props.costOf(child.id),
+        contextPercent: props.contextPercentOf(child.id),
+        scheduled: props.scheduledIds.has(String(child.id)),
+        running: props.runningOf(child.id),
+        completed: props.completedOf(child.id),
+        pending: props.pendingOf(child.id),
+        summary: child,
+        current: String(child.id) === String(props.mainSessionId),
+        section: null,
+        orphan: true,
+        nested: true,
+        archived: props.archived.has(child.id),
+        archiveSession: props.archiveSession,
+        unarchiveSession: props.unarchiveSession,
+        renderSlot: props.renderSlot,
+        openSession: props.openSession,
+        renameSession: props.renameSession,
+        flipKey: 'row:' + child.id,
+      });
+
+      return h(React.Fragment, null,
+        h(BrowserSessionRow, Object.assign({}, rowProps, {
+          summary,
+          current,
+          nested: depth > 0,
+          subagentCount: children.length,
+          subagentOpen: open,
+          onToggleSubagents: () => props.toggleSubagents(summaryId),
+          renameRequestId: props.renameRequestId,
+        })),
+        open ? h('div', { className: 'dssx-subagent-rows' },
+          children.map((child) => h(SessionRowTree, {
+            key: child.id,
+            rowProps: childRowProps(child),
+            depth: depth + 1,
+            ancestors: nextAncestors,
+            childrenOf: props.childrenOf,
+            expandedSubagents: props.expandedSubagents,
+            toggleSubagents: props.toggleSubagents,
+            mainSessionId: props.mainSessionId,
+            archived: props.archived,
+            scheduledIds: props.scheduledIds,
+            costOf: props.costOf,
+            contextPercentOf: props.contextPercentOf,
+            runningOf: props.runningOf,
+            completedOf: props.completedOf,
+            pendingOf: props.pendingOf,
+            archiveSession: props.archiveSession,
+            unarchiveSession: props.unarchiveSession,
+            renderSlot: props.renderSlot,
+            openSession: props.openSession,
+            renameSession: props.renameSession,
+            renameRequestId: props.renameRequestId,
+            t: props.t,
+          }))) : null
       );
     }
 
     function SessionGroupsBrowser(props) {
       const t = props.t;
       const wide = props.wide === true;
+      const renameRequestId = useRenameRequest();
+      const workspaceRenameRequestId = useWorkspaceRenameRequest();
       const renderSlot = typeof props.renderSlot === 'function' ? props.renderSlot : null;
       const openSession = props.openSession;
       const startSession = props.startSession;
@@ -2203,6 +3007,7 @@ window.__ModuleLoader__.load({
       const moveWorkspaceBefore = props.moveWorkspaceBefore;
       const archiveSession = props.archiveSession;
       const renameSession = props.renameSession;
+      const renameWorkspace = props.renameWorkspace;
       const unarchiveSession = props.unarchiveSession;
       const openPanel = props.openPanel;
       const refreshProjections = props.refreshProjections;
@@ -2307,25 +3112,32 @@ window.__ModuleLoader__.load({
       }, [readBalance]);
 
       const [showArchived, setShowArchived] = useState(false);
+      // Workspace collapse is a tri-state: true = explicitly collapsed,
+      // false = explicitly expanded, absent = derive from activity below.
+      // Kept in memory only; a reload falls back to the derived default.
       const [collapsedWorkspaces, setCollapsedWorkspaces] = useState({});
       const [collapsedGroups, setCollapsedGroups] = useState({});
+      // Subagent fold state: absent from the Set means collapsed. Default empty,
+      // so a parent row only shows its badge until the user opens it.
+      const [expandedSubagents, setExpandedSubagents] = useState(() => new Set());
+      // One-shot guard for "main view is a subagent": expand its ancestor chain
+      // once, then a manual collapse sticks for the rest of the page life.
+      const autoExpandedSubagentMain = useRef(new Set());
       // Group collapse is derived until the user touches it: a group starts
       // collapsed unless one of its rows is active — running (its context ring
       // spins), asking a question or waiting for approval / plan review (the
       // marker ring takes the status colour), carrying a scheduled reminder
       // (the clock mark), or being the conversation currently open in the main
-      // view. Those are exactly the row signals the sidebar paints, so the
-      // default matches what is visible on the row. After a toggle the explicit
-      // value in collapsedGroups wins until the page is reloaded.
+      // view. A running / completed / current subagent under a row counts too,
+      // so an active branch is not hidden behind a collapsed group header.
+      // Those are exactly the row signals the sidebar paints, so the default
+      // matches what is visible on the row. After a toggle the explicit value
+      // in collapsedGroups wins until the page is reloaded.
       const groupHasActiveRow = (group) => group.rows.some((row) => {
         const id = row.id;
-        return runningOf(id) === true
-          || pendingOf(id) !== null
+        return pendingOf(id) !== null
           || scheduledIds.has(String(id))
-          // The session the user currently has open counts as active too: after a
-          // reload its group must be expanded or the restored conversation is
-          // hidden behind a collapsed header.
-          || id === mainSessionId;
+          || sessionTreeHasActivity(id, new Set(), 0);
       });
       const setGroupCollapsed = (groupKey, collapsed) => {
         setCollapsedGroups((current) => Object.assign({}, current, { [groupKey]: collapsed }));
@@ -2357,8 +3169,15 @@ window.__ModuleLoader__.load({
       // and the before/after side only flips past the middle threshold.
       const dragPointRef = useRef(null);
       const sessionDropRef = useRef(null);
+      // One commit per drag gesture: the section and the sidebar fallback both
+      // accept a workspace drop, so the flag keeps the release from being
+      // applied twice.
+      const workspaceDropRef = useRef(false);
       const [editingGroup, setEditingGroup] = useState(null);
       const [editingName, setEditingName] = useState('');
+      const [editingWorkspaceId, setEditingWorkspaceId] = useState(null);
+      const [editingWorkspaceName, setEditingWorkspaceName] = useState('');
+      const [workspaceError, setWorkspaceError] = useState(null);
       const [colorPicker, setColorPicker] = useState(null);
       const leaveTimerRef = useRef(null);
 
@@ -2381,7 +3200,58 @@ window.__ModuleLoader__.load({
         return () => window.clearTimeout(timer);
       }, [pendingGroupDelete]);
 
+      useEffect(() => {
+        if (!workspaceError) return undefined;
+        const timer = window.setTimeout(() => setWorkspaceError(null), 4000);
+        return () => window.clearTimeout(timer);
+      }, [workspaceError]);
+
       const items = workspaceState && Array.isArray(workspaceState.items) ? workspaceState.items : [];
+
+      useEffect(() => {
+        if (!workspaceRenameRequestId) return;
+        const id = String(workspaceRenameRequestId);
+        const workspace = items.find((entry) => String(entry.workspaceId) === id);
+        clearWorkspaceRenameRequest(id);
+        if (!workspace) return;
+        setEditingGroup(null);
+        setColorPicker(null);
+        setEditingWorkspaceName(workspaceTitleOf(workspace, t));
+        setEditingWorkspaceId(id);
+      }, [workspaceRenameRequestId, items, t]);
+
+      const commitWorkspaceRename = async (workspaceId) => {
+        const id = String(workspaceId);
+        const next = editingWorkspaceName.trim();
+        if (!next) {
+          setEditingWorkspaceId(null);
+          setEditingWorkspaceName('');
+          setWorkspaceError({ wsId: id, message: t('rename.empty') });
+          return;
+        }
+        const workspace = items.find((entry) => String(entry.workspaceId) === id);
+        const original = workspace ? workspaceTitleOf(workspace, t) : '';
+        if (next === original) {
+          setEditingWorkspaceId(null);
+          setEditingWorkspaceName('');
+          return;
+        }
+        try {
+          if (typeof renameWorkspace !== 'function') throw new Error('rename unsupported');
+          await renameWorkspace(id, next);
+          setEditingWorkspaceId(null);
+          setEditingWorkspaceName('');
+        } catch (failure) {
+          setEditingWorkspaceId(null);
+          setEditingWorkspaceName('');
+          setWorkspaceError({
+            wsId: id,
+            message: t('rename.failed', {
+              message: failure && failure.message ? failure.message : String(failure),
+            }),
+          });
+        }
+      };
       const moves = sectionsState.moves || {};
       const workspaceIds = useMemo(() => new Set(items.map((workspace) => workspace.workspaceId)), [items]);
 
@@ -2472,6 +3342,101 @@ window.__ModuleLoader__.load({
         return null;
       }, [byId]);
 
+      // Client list rows carry `parentId`: @deepseek-ai/dsh-api-session-controller's
+      // client/sessions/service.ts defines `parentId?: SessionId` and maps the wire
+      // `parentSessionId` onto it (the wire type lives on the Host side only). The
+      // fallback keeps old/mock summaries usable, but `parentId` is the real field.
+      function parentSessionOf(summary) {
+        if (!summary) return '';
+        const parent = summary.parentId !== undefined ? summary.parentId : summary.parentSessionId;
+        return parent === undefined || parent === null ? '' : String(parent);
+      }
+
+      // Subagent sessions never appear as top-level workspace/orphan rows; they
+      // hang under the client summary's `parentId` (Host wire: `parentSessionId`).
+      // The native sidebar filters `origin === 'subagent'` the same way. Newest
+      // first, matching the top-level row order; the id tiebreaker keeps equal
+      // timestamps stable.
+      const childrenByParent = useMemo(() => {
+        const map = new Map();
+        for (const id of Object.keys(byId)) {
+          const summary = byId[id];
+          if (!summary || summary.origin !== 'subagent') continue;
+          const parentId = parentSessionOf(summary);
+          if (!parentId) continue;
+          if (!map.has(parentId)) map.set(parentId, []);
+          map.get(parentId).push(summary);
+        }
+        for (const list of map.values()) {
+          list.sort((left, right) => {
+            const diff = toMs(right.updatedAt) - toMs(left.updatedAt);
+            if (diff !== 0) return diff;
+            return String(left.id) < String(right.id) ? -1 : 1;
+          });
+        }
+        return map;
+      }, [byId]);
+
+      // Visible subagent children: same archive / blank rules as a normal row.
+      // Defined as a function declaration so the group default (created earlier
+      // in the body) can call it during render, after every const is initialised.
+      function subagentChildrenOf(parentId) {
+        const list = childrenByParent.get(String(parentId)) || [];
+        return list.filter((summary) => {
+          if (!summary || summary.origin !== 'subagent') return false;
+          if (summary.blank && String(summary.id) !== String(mainSessionId)) return false;
+          if (archived.has(summary.id) && !showArchived) return false;
+          return true;
+        });
+      }
+
+      // Workspace/group activity: the row itself or any visible subagent below
+      // it is running, finished-unread, waiting for the user, or holds the open
+      // conversation. Scheduled reminders deliberately do not count.
+      function sessionTreeHasActivity(sessionId, seen, depth) {
+        const key = String(sessionId);
+        if (seen.has(key) || depth > 12) return false;
+        const next = new Set(seen);
+        next.add(key);
+        if (runningOf(key) === true
+          || completedOf(key) === true
+          || pendingOf(key) !== null
+          || key === String(mainSessionId)) return true;
+        return subagentChildrenOf(key).some((child) => sessionTreeHasActivity(child.id, next, depth + 1));
+      }
+
+      // The main view can host a subagent. Expand its owner chain once so the
+      // nested rows are visible on reload; after that the user's fold wins.
+      useEffect(() => {
+        if (!mainSessionId) return;
+        const key = String(mainSessionId);
+        if (autoExpandedSubagentMain.current.has(key)) return;
+        const summary = byId[key];
+        if (!summary || summary.origin !== 'subagent') return;
+        const chain = new Set();
+        let cursor = parentSessionOf(summary);
+        let guard = 0;
+        while (cursor && guard < 16) {
+          chain.add(cursor);
+          const parent = byId[cursor];
+          cursor = parentSessionOf(parent);
+          guard += 1;
+        }
+        if (chain.size === 0) return;
+        autoExpandedSubagentMain.current.add(key);
+        setExpandedSubagents((current) => {
+          let changed = false;
+          const next = new Set(current);
+          for (const id of chain) {
+            if (!next.has(id)) {
+              next.add(id);
+              changed = true;
+            }
+          }
+          return changed ? next : current;
+        });
+      }, [mainSessionId, byId]);
+
       // Context-pressure alerts: fires once per Session per threshold, then stays
       // quiet (persisted in localStorage) so a page refresh does not re-nag.
       const currentPercent = mainSessionId ? contextPercentOf(mainSessionId) : null;
@@ -2513,7 +3478,8 @@ window.__ModuleLoader__.load({
         const out = [];
         for (const sessionId of Object.keys(byId)) {
           const summary = byId[sessionId];
-          if (!summary || known.has(sessionId)) continue;
+          // Subagents are nested under their owner row, never listed as orphans.
+          if (!summary || summary.origin === 'subagent' || known.has(sessionId)) continue;
           const move = moves[sessionId];
           if (move && workspaceIds.has(move.workspaceId)) continue;
           if (summary.blank && sessionId !== mainSessionId) continue;
@@ -2529,6 +3495,13 @@ window.__ModuleLoader__.load({
         return out;
       }, [items, byId, archived, pinned, showArchived, mainSessionId, moves, workspaceIds]);
 
+      // "No workspace" follows the same rule as a workspace header: default
+      // collapsed unless a visible orphan row (or its subagent branch) is active.
+      const orphanHasActivity = useMemo(
+        () => orphanSessions.some((row) => sessionTreeHasActivity(row.id, new Set(), 0)),
+        [orphanSessions, statusMap, mainSessionId, childrenByParent, archived, showArchived],
+      );
+
       const nodes = useMemo(() => {
         const out = [];
         for (const workspace of items) {
@@ -2539,7 +3512,8 @@ window.__ModuleLoader__.load({
             const move = moves[sessionId];
             if (move && move.workspaceId !== wsId) continue;
             const summary = byId[sessionId];
-            if (!summary) continue;
+            // Subagent summaries never become top-level workspace rows.
+            if (!summary || summary.origin === 'subagent') continue;
             if (summary.blank && sessionId !== mainSessionId) continue;
             if (archived.has(sessionId) && !showArchived) continue;
             rows.push(summary);
@@ -2549,7 +3523,7 @@ window.__ModuleLoader__.load({
             if (move.workspaceId !== wsId) continue;
             if (Array.isArray(workspace.sessionIds) && workspace.sessionIds.indexOf(sessionId) >= 0) continue;
             const summary = byId[sessionId];
-            if (!summary || summary.blank) continue;
+            if (!summary || summary.blank || summary.origin === 'subagent') continue;
             if (archived.has(sessionId) && !showArchived) continue;
             rows.push(summary);
           }
@@ -2591,6 +3565,71 @@ window.__ModuleLoader__.load({
         }
         return out;
       }, [items, byId, archived, pinned, sectionsState, showArchived, mainSessionId, moves]);
+
+      // Derived workspace defaults: only workspaces with a running/finished-unread
+      // session (or the open conversation) start expanded. The traversal walks
+      // subagents under each visible row, so a busy child keeps its owner's
+      // workspace open. `statusMap` is in the deps because runningOf/completedOf
+      // read it; `childrenByParent` covers subagent status changes.
+      const workspaceActiveKeys = useMemo(() => {
+        const active = new Set();
+        for (const node of nodes) {
+          const rows = node.groups.reduce((acc, group) => acc.concat(group.rows), []).concat(node.unassigned);
+          if (rows.some((row) => sessionTreeHasActivity(row.id, new Set(), 0))) {
+            active.add(String(node.workspace.workspaceId));
+          }
+        }
+        return active;
+      }, [nodes, statusMap, mainSessionId, childrenByParent, archived, showArchived]);
+
+      // Tri-state resolution: an explicit boolean wins, otherwise derived
+      // activity decides. `__orphan__` shares the same code path with its own
+      // activity flag so every reader (header, ring, collapse class) agrees.
+      const isWorkspaceCollapsed = (wsKey) => {
+        const key = String(wsKey);
+        const explicit = collapsedWorkspaces[key];
+        if (explicit === true) return true;
+        if (explicit === false) return false;
+        return key === '__orphan__' ? !orphanHasActivity : !workspaceActiveKeys.has(key);
+      };
+      const setWorkspaceCollapsed = (wsKey, collapsed) => {
+        setCollapsedWorkspaces((current) => Object.assign({}, current, { [String(wsKey)]: collapsed === true }));
+      };
+      const toggleWorkspace = (wsKey) => {
+        setWorkspaceCollapsed(wsKey, !isWorkspaceCollapsed(wsKey));
+      };
+      const toggleSubagents = (sessionId) => {
+        setExpandedSubagents((current) => {
+          const key = String(sessionId);
+          const next = new Set(current);
+          if (next.has(key)) next.delete(key);
+          else next.add(key);
+          return next;
+        });
+      };
+      // Shared config for every subagent tree in this render. The tree component
+      // lives at module scope (stable component type) and reads row data through
+      // these helpers.
+      const rowTreeConfig = {
+        childrenOf: subagentChildrenOf,
+        expandedSubagents,
+        toggleSubagents,
+        mainSessionId,
+        archived,
+        scheduledIds,
+        costOf,
+        contextPercentOf,
+        runningOf,
+        completedOf,
+        pendingOf,
+        archiveSession,
+        unarchiveSession,
+        renderSlot,
+        openSession,
+        renameSession,
+        renameRequestId,
+        t,
+      };
 
       // The list actually rendered while a drag preview is active. Moving items
       // reorder inside their own level; a Session preview also pulls the source
@@ -2689,13 +3728,50 @@ window.__ModuleLoader__.load({
           && target.closest('button, input, textarea, select, a, [role="menuitem"]'));
       };
 
+      // FLIP runs the move as a transition, so the inline translateY only exists
+      // for a single frame; for the whole 180ms the computed matrix carries the
+      // current offset. Subtracting that offset recovers the layout top — without
+      // it the hit test compares the pointer against the animation. The row path
+      // measures offsetTop / offsetHeight for the same reason.
+      const translateYOf = (element) => {
+        const view = (typeof window !== 'undefined' && window && typeof window.getComputedStyle === 'function')
+          ? window.getComputedStyle(element)
+          : null;
+        const transform = view && view.transform ? view.transform : '';
+        if (!transform || transform === 'none') return 0;
+        const matrix = /^matrix\(([^)]+)\)$/u.exec(transform);
+        if (matrix) {
+          const shift = Number(matrix[1].split(',')[5]);
+          return Number.isFinite(shift) ? shift : 0;
+        }
+        const matrix3d = /^matrix3d\(([^)]+)\)$/u.exec(transform);
+        if (matrix3d) {
+          const shift = Number(matrix3d[1].split(',')[13]);
+          return Number.isFinite(shift) ? shift : 0;
+        }
+        const translate = /translateY\(\s*(-?[\d.]+)px\s*\)/u.exec(transform);
+        if (translate) {
+          const shift = Number(translate[1]);
+          return Number.isFinite(shift) ? shift : 0;
+        }
+        return 0;
+      };
+
+      const layoutRectOf = (element) => {
+        const rect = element.getBoundingClientRect();
+        if (!rect) return rect;
+        const shift = translateYOf(element);
+        if (shift === 0) return rect;
+        return { top: rect.top - shift, height: rect.height };
+      };
+
       // Half of the target used by the insert line: pointer above the middle
       // means "before", below means "after" (the Host's native workspace drag
       // uses the same rule).
       const halfOf = (event) => {
         const node = event && event.currentTarget;
         if (!node || typeof node.getBoundingClientRect !== 'function') return 'before';
-        const rect = node.getBoundingClientRect();
+        const rect = layoutRectOf(node);
         if (!rect || rect.height <= 0) return 'before';
         return event.clientY - rect.top < rect.height / 2 ? 'before' : 'after';
       };
@@ -2784,10 +3860,16 @@ window.__ModuleLoader__.load({
       };
 
       const beginDrag = (kind, event, info) => {
+        // A gesture that never got its dragend (the dragged node was removed,
+        // for instance) leaves a preview behind, and the next drag would take
+        // that stale order as its base. clearPreview() is a no-op when the
+        // preview is already null.
+        clearPreview();
         setDrag(Object.assign({ kind }, info));
         setDropHint(null);
         dragPointRef.current = null;
         sessionDropRef.current = null;
+        workspaceDropRef.current = false;
         try {
           event.dataTransfer.setData('text/plain', String(info.id));
           event.dataTransfer.effectAllowed = 'move';
@@ -2803,6 +3885,7 @@ window.__ModuleLoader__.load({
         setDropHint(null);
         dragPointRef.current = null;
         sessionDropRef.current = null;
+        workspaceDropRef.current = false;
       };
 
       // Header drag handles. Kept as plain calls (no inline block) so the header
@@ -2861,6 +3944,35 @@ window.__ModuleLoader__.load({
           ids: insertNear(ids, drag.id, targetId, pos),
         });
         setDropHint(null);
+      };
+
+      // A workspace drop commits the previewed order. Both the section and the
+      // sidebar fallback route here, and one gesture commits at most once.
+      const commitWorkspaceDrop = () => {
+        const active = drag;
+        if (!active || active.kind !== 'workspace') return false;
+        if (workspaceDropRef.current) return false;
+        const current = previewRef.current;
+        if (!current || current.kind !== 'workspace') return false;
+        const base = items.map((item) => String(item.workspaceId));
+        const order = current.order;
+        const index = order.indexOf(active.id);
+        if (index < 0 || order.join('|') === base.join('|') || typeof moveWorkspaceBefore !== 'function') return false;
+        // Set only once a commit is certain, right before the write: the flag
+        // means "already committed", not "a drop was seen".
+        workspaceDropRef.current = true;
+        const anchor = index + 1 < order.length ? order[index + 1] : undefined;
+        const pending = moveWorkspaceBefore(active.id, anchor);
+        if (pending && typeof pending.catch === 'function') {
+          // The Controller already rolls the list back when the Host refuses
+          // the write; leave a trace instead of swallowing the rejection.
+          pending.catch((error) => {
+            if (typeof console !== 'undefined' && console && typeof console.warn === 'function') {
+              console.warn('workspace reorder rejected:', error);
+            }
+          });
+        }
+        return true;
       };
 
       // A Session drop commits the previewed list; ownership (assignments vs the
@@ -2981,9 +4093,10 @@ window.__ModuleLoader__.load({
       const body = renderedNodes.map((node) => {
         const workspace = node.workspace;
         const wsKey = workspace.workspaceId;
-        const wsCollapsed = collapsedWorkspaces[wsKey] === true;
+        const wsCollapsed = isWorkspaceCollapsed(wsKey);
         const count = node.groups.reduce((sum, group) => sum + group.rows.length, 0) + node.unassigned.length;
         const wsCost = sumCost(node.groups.reduce((acc, group) => acc.concat(group.rows), []).concat(node.unassigned));
+        const wsHasCost = hasCost(wsCost);
         const wsDragMark = drag && drag.kind === 'workspace' && drag.id === wsKey;
         return h('section', {
           className: cx('dssx-browser-ws', wsDragMark && 'dssx-dragging'),
@@ -2992,10 +4105,16 @@ window.__ModuleLoader__.load({
           // The whole workspace block is the reorder target: pointer above its
           // middle inserts before it, below inserts after it. The list reorders
           // live, so the target itself moves under the pointer.
+          // That live preview is also why every workspace dragover must cancel
+          // the event — including the one that lands on the dragged block
+          // itself. A dragover without preventDefault invalidates the current
+          // drop target, so the release fires dragend instead of drop and the
+          // preview would be rolled back.
           onDragOver: (event) => {
-            if (!drag || drag.kind !== 'workspace' || drag.id === wsKey) return;
+            if (!drag || drag.kind !== 'workspace') return;
             event.preventDefault();
             event.stopPropagation();
+            if (drag.id === wsKey) return;
             cancelLeave();
             previewWorkspaceAt(wsKey, halfOf(event));
           },
@@ -3003,39 +4122,72 @@ window.__ModuleLoader__.load({
             if (!drag || drag.kind !== 'workspace') return;
             event.preventDefault();
             event.stopPropagation();
-            const current = previewRef.current;
-            const base = items.map((item) => String(item.workspaceId));
-            if (current && current.kind === 'workspace') {
-              const order = current.order;
-              const index = order.indexOf(drag.id);
-              if (index >= 0 && order.join('|') !== base.join('|') && typeof moveWorkspaceBefore === 'function') {
-                const anchor = index + 1 < order.length ? order[index + 1] : undefined;
-                const pending = moveWorkspaceBefore(drag.id, anchor);
-                if (pending && typeof pending.catch === 'function') pending.catch(() => {});
-              }
-            }
+            commitWorkspaceDrop();
             endDrag();
           },
         },
           h('header', {
-            className: 'dssx-browser-ws-head',
-            draggable: true,
+            className: cx('dssx-browser-ws-head', !wsHasCost && 'dssx-no-cost'),
+            draggable: editingWorkspaceId !== wsKey,
             onDragStart: (event) => startWorkspaceDrag(event, wsKey),
             onDragEnd: endDrag,
-            onClick: (event) => headerToggleClick(event, () => toggleKey(collapsedWorkspaces, setCollapsedWorkspaces, wsKey)),
+            onClick: (event) => headerToggleClick(event, () => toggleWorkspace(wsKey)),
+            onContextMenu: (event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              openWorkspaceMenu({
+                workspaceId: wsKey,
+                title: workspaceTitleOf(workspace, t),
+                path: workspace.path ? String(workspace.path) : '',
+                collapsed: wsCollapsed,
+                x: event.clientX,
+                y: event.clientY,
+                actions: {
+                  newSession: () => {
+                    if (typeof startSession === 'function') startSession(wsKey);
+                  },
+                  addGroup: () => {
+                    if (isWorkspaceCollapsed(wsKey)) setWorkspaceCollapsed(wsKey, false);
+                    const id = addSection(wsKey, t('section.untitled'));
+                    setColorPicker(null);
+                    setEditingGroup({ wsId: wsKey, sectionId: id });
+                    setEditingName(t('section.untitled'));
+                  },
+                  toggle: () => toggleWorkspace(wsKey),
+                  remove: async () => {
+                    if (typeof deleteWorkspace === 'function') await deleteWorkspace(wsKey);
+                    clearWorkspaceData(wsKey);
+                  },
+                },
+              });
+            },
           },
             h(RingCaret, {
               color: '#1f1f1f',
-              size: 36,
+              size: 30,
               open: !wsCollapsed,
               title: workspaceTitleOf(workspace, t),
-              onClick: () => toggleKey(collapsedWorkspaces, setCollapsedWorkspaces, wsKey),
+              onClick: () => toggleWorkspace(wsKey),
             }),
-            h('span', { className: 'dssx-browser-ws-title', title: workspaceTitleOf(workspace, t) },
-              workspaceTitleOf(workspace, t)),
+            editingWorkspaceId === wsKey
+              ? h('div', { className: 'dssx-inline-form dssx-inline-rename' },
+                h(InlineInput, {
+                  value: editingWorkspaceName,
+                  placeholder: t('browser.workspaceTitlePlaceholder'),
+                  onChange: setEditingWorkspaceName,
+                  onCommit: () => {
+                    commitWorkspaceRename(wsKey);
+                  },
+                  onCancel: () => {
+                    setEditingWorkspaceId(null);
+                    setEditingWorkspaceName('');
+                  },
+                }))
+              : h('span', { className: 'dssx-browser-ws-title', title: workspaceTitleOf(workspace, t) },
+                workspaceTitleOf(workspace, t)),
             h('span', { className: cx('dssx-browser-count', 'dssx-browser-ws-count') }, count),
-            h('div', { className: 'dssx-browser-tail' },
-              h('span', { className: 'dssx-row-cost' }, formatCny(wsCost)),
+            h('div', { className: cx('dssx-browser-tail', pendingWorkspaceDelete === wsKey && 'dssx-visible') },
+              wsHasCost ? h('span', { className: 'dssx-row-cost' }, formatCny(wsCost)) : null,
               h('button', {
                 type: 'button',
                 className: 'dssx-browser-tool',
@@ -3050,8 +4202,8 @@ window.__ModuleLoader__.load({
               title: t('browser.addGroup'),
               disabled: busy,
               onClick: () => {
-                if (collapsedWorkspaces[wsKey] === true) {
-                  toggleKey(collapsedWorkspaces, setCollapsedWorkspaces, wsKey);
+                if (isWorkspaceCollapsed(wsKey)) {
+                  setWorkspaceCollapsed(wsKey, false);
                 }
                 const id = addSection(wsKey, t('section.untitled'));
                 setColorPicker(null);
@@ -3086,6 +4238,9 @@ window.__ModuleLoader__.load({
               },
             }, h(IconTrash, { size: 15 })))
           ),
+          workspaceError && workspaceError.wsId === wsKey
+            ? h('div', { className: 'dssx-ws-error' }, workspaceError.message)
+            : null,
           h('div', { className: cx('dssx-collapse', wsCollapsed && 'dssx-collapsed') },
             h('div', { className: 'dssx-collapse-inner dssx-browser-groups' },
             node.groups.map((group) => {
@@ -3110,9 +4265,13 @@ window.__ModuleLoader__.load({
                 onDragOver: (event) => {
                   if (!drag) return;
                   if (drag.kind === 'group') {
-                    if (drag.id === group.key || drag.workspaceId !== wsKey) return;
+                    if (drag.workspaceId !== wsKey) return;
+                    // The group preview moves the dragged header under the
+                    // pointer too, so the self hit still has to keep the drop
+                    // target valid, exactly like the workspace block.
                     event.preventDefault();
                     event.stopPropagation();
+                    if (drag.id === group.key) return;
                     cancelLeave();
                     const sectionIds = (sectionsState.byWorkspace[wsKey] || EMPTY_BUCKET).sections.map((section) => section.id);
                     previewGroupAt(wsKey, sectionIds, group.key, halfOf(event));
@@ -3154,7 +4313,7 @@ window.__ModuleLoader__.load({
                 },
               },
                 h('header', {
-                  className: 'dssx-browser-group-head',
+                  className: cx('dssx-browser-group-head', !hasCost(sumCost(group.rows)) && 'dssx-no-cost'),
                   draggable: !isEditingGroup,
                   onDragStart: (event) => startGroupDrag(event, wsKey, group.key),
                   onDragEnd: endDrag,
@@ -3162,7 +4321,7 @@ window.__ModuleLoader__.load({
                 },
                   h(RingCaret, {
                     color: group.color,
-                    size: 30,
+                    size: 24,
                     open: !groupCollapsed,
                     title: group.name,
                     onClick: () => setGroupCollapsed(groupKey, !groupCollapsed),
@@ -3180,9 +4339,9 @@ window.__ModuleLoader__.load({
                         onCancel: () => setEditingGroup(null),
                       }))
                     : h('span', { className: 'dssx-browser-group-name' }, group.name),
-                  h('div', { className: 'dssx-browser-tail' },
-                    h('span', { className: 'dssx-row-cost' }, formatCny(sumCost(group.rows))),
-                    h('div', { className: cx('dssx-browser-group-actions', pendingGroup && 'dssx-visible') },
+                  h('div', { className: cx('dssx-browser-tail', pendingGroup && 'dssx-visible') },
+                    hasCost(sumCost(group.rows)) ? h('span', { className: 'dssx-row-cost' }, formatCny(sumCost(group.rows))) : null,
+                    h('div', { className: 'dssx-browser-group-actions' },
                     h('button', {
                       type: 'button',
                       className: 'dssx-browser-tool',
@@ -3250,41 +4409,44 @@ window.__ModuleLoader__.load({
                   h('div', { className: 'dssx-collapse-inner dssx-browser-rows' },
                   group.rows.length === 0
                     ? h('div', { className: 'dssx-browser-empty-row' }, t('section.empty'))
-                    : group.rows.map((summary, rowIndex) => h(BrowserSessionRow, {
+                    : group.rows.map((summary, rowIndex) => h(SessionRowTree, Object.assign({
                       key: summary.id,
-                      t,
-                      cost: costOf(summary.id),
-                      contextPercent: contextPercentOf(summary.id),
-                      scheduled: scheduledIds.has(String(summary.id)),
-                      running: runningOf(summary.id),
-                      completed: completedOf(summary.id),
-                      pending: pendingOf(summary.id),
-                      summary,
-                      current: summary.id === mainSessionId,
-                      section: group,
-                      archived: archived.has(summary.id),
-                      archiveSession,
-                      unarchiveSession,
-                      renderSlot,
-                      openSession,
-                      renameSession,
-                      dragging: drag && drag.kind === 'session' && drag.id === summary.id,
-                      flipKey: 'row:' + summary.id,
-                      onDragStart: (event, id) => {
-                        beginDrag('session', event, { id, workspaceId: wsKey, sectionId: group.key });
+                      depth: 0,
+                      rowProps: {
+                        t,
+                        cost: costOf(summary.id),
+                        contextPercent: contextPercentOf(summary.id),
+                        scheduled: scheduledIds.has(String(summary.id)),
+                        running: runningOf(summary.id),
+                        completed: completedOf(summary.id),
+                        pending: pendingOf(summary.id),
+                        summary,
+                        current: summary.id === mainSessionId,
+                        section: group,
+                        archived: archived.has(summary.id),
+                        archiveSession,
+                        unarchiveSession,
+                        renderSlot,
+                        openSession,
+                        renameSession,
+                        dragging: drag && drag.kind === 'session' && drag.id === summary.id,
+                        flipKey: 'row:' + summary.id,
+                        onDragStart: (event, id) => {
+                          beginDrag('session', event, { id, workspaceId: wsKey, sectionId: group.key });
+                        },
+                        onDragOver: (event, id) => onRowDragOver(event, id, wsKey, group.key, rowIds),
+                        onDrop: (event) => onRowDrop(event, wsKey, group.key),
+                        onDragEnd: endDrag,
+                        canMoveUp: rowIndex > 0,
+                        canMoveDown: rowIndex < group.rows.length - 1,
+                        onMoveUp: () => moveSessionInGroup(wsKey, group.key, rowIds, rowIndex, -1),
+                        onMoveDown: () => moveSessionInGroup(wsKey, group.key, rowIds, rowIndex, 1),
                       },
-                      onDragOver: (event, id) => onRowDragOver(event, id, wsKey, group.key, rowIds),
-                      onDrop: (event) => onRowDrop(event, wsKey, group.key),
-                      onDragEnd: endDrag,
-                      canMoveUp: rowIndex > 0,
-                      canMoveDown: rowIndex < group.rows.length - 1,
-                      onMoveUp: () => moveSessionInGroup(wsKey, group.key, rowIds, rowIndex, -1),
-                      onMoveDown: () => moveSessionInGroup(wsKey, group.key, rowIds, rowIndex, 1),
-                    }))))
+                    }, rowTreeConfig)))))
               );
             }),
             h('div', {
-              className: cx('dssx-browser-group', node.groups.length > 0 && 'dssx-unassigned-group',
+              className: cx('dssx-browser-group',
                 dropHint && dropHint.key === 'unassigned:' + wsKey && 'dssx-drop-into'),
               onDragOver: (event) => {
                 if (!drag || drag.kind !== 'session') return;
@@ -3304,15 +4466,85 @@ window.__ModuleLoader__.load({
                 handleSessionDrop(event, wsKey, '');
               },
             },
-              h('header', { className: 'dssx-browser-group-head' },
-                h('span', { className: 'dssx-browser-group-name dssx-unassigned-name' }, t('unassigned')),
-                h('span', { className: 'dssx-browser-count' }, node.unassigned.length)
-              ),
+              // Unassigned sessions are ordinary workspace rows after the groups:
+              // no "Unassigned N" heading and no dashed separator. The container
+              // stays as the drop target; it renders no header even when groups
+              // exist, and the rows render only when there are unassigned sessions.
               h('div', { className: 'dssx-browser-rows' },
                 node.unassigned.length === 0
                   ? (node.groups.length === 0 ? h('div', { className: 'dssx-browser-empty-row' }, t('browser.emptyWorkspace')) : null)
-                  : node.unassigned.map((summary, rowIndex) => h(BrowserSessionRow, {
+                  : node.unassigned.map((summary, rowIndex) => h(SessionRowTree, Object.assign({
                     key: summary.id,
+                    depth: 0,
+                    rowProps: {
+                      t,
+                      cost: costOf(summary.id),
+                      contextPercent: contextPercentOf(summary.id),
+                      scheduled: scheduledIds.has(String(summary.id)),
+                      running: runningOf(summary.id),
+                      completed: completedOf(summary.id),
+                      pending: pendingOf(summary.id),
+                      summary,
+                      current: summary.id === mainSessionId,
+                      section: null,
+                      archived: archived.has(summary.id),
+                      archiveSession,
+                      unarchiveSession,
+                      renderSlot,
+                      openSession,
+                      renameSession,
+                      dragging: drag && drag.kind === 'session' && drag.id === summary.id,
+                      flipKey: 'row:' + summary.id,
+                      onDragStart: (event, id) => {
+                        beginDrag('session', event, { id, workspaceId: wsKey, sectionId: '' });
+                      },
+                      onDragOver: (event, id) => onRowDragOver(event, id, wsKey, '', node.unassigned.map((row) => row.id)),
+                      onDrop: (event) => onRowDrop(event, wsKey, ''),
+                      onDragEnd: endDrag,
+                      canMoveUp: rowIndex > 0,
+                      canMoveDown: rowIndex < node.unassigned.length - 1,
+                      onMoveUp: () => moveSessionInGroup(wsKey, '', node.unassigned.map((row) => row.id), rowIndex, -1),
+                      onMoveDown: () => moveSessionInGroup(wsKey, '', node.unassigned.map((row) => row.id), rowIndex, 1),
+                    },
+                  }, rowTreeConfig))))
+              ))
+            )
+          );
+      });
+
+      const orphanCollapsed = isWorkspaceCollapsed('__orphan__');
+      // While a session is dragged out of the orphan area, hide it there so the
+      // preview does not show it twice.
+      const shownOrphans = preview && preview.kind === 'session' && preview.fromWs === '' && preview.toWs !== ''
+        ? orphanSessions.filter((summary) => summary.id !== preview.sourceId)
+        : orphanSessions;
+      if (shownOrphans.length > 0) {
+        body.push(h('section', { className: 'dssx-browser-ws dssx-orphan-ws', key: '__orphan__' },
+          h('header', {
+            className: 'dssx-browser-ws-head',
+            onClick: (event) => headerToggleClick(event, () => toggleWorkspace('__orphan__')),
+          },
+            h(RingCaret, {
+              color: '#1f1f1f',
+              size: 30,
+              open: !orphanCollapsed,
+              title: t('orphan.label'),
+              onClick: () => toggleWorkspace('__orphan__'),
+            }),
+            h('span', { className: 'dssx-browser-ws-title' }, t('orphan.label')),
+            h('span', { className: cx('dssx-browser-count', 'dssx-browser-ws-count') }, shownOrphans.length),
+            hasCost(sumCost(shownOrphans))
+              ? h('span', { className: 'dssx-row-cost dssx-row-cost-static' }, formatCny(sumCost(shownOrphans)))
+              : null
+          ),
+          h('div', { className: cx('dssx-collapse', orphanCollapsed && 'dssx-collapsed') },
+            h('div', { className: 'dssx-collapse-inner dssx-browser-groups' },
+            h('div', { className: 'dssx-browser-group' },
+              h('div', { className: 'dssx-browser-rows' },
+                shownOrphans.map((summary) => h(SessionRowTree, Object.assign({
+                  key: summary.id,
+                  depth: 0,
+                  rowProps: {
                     t,
                     cost: costOf(summary.id),
                     contextPercent: contextPercentOf(summary.id),
@@ -3323,6 +4555,7 @@ window.__ModuleLoader__.load({
                     summary,
                     current: summary.id === mainSessionId,
                     section: null,
+                    orphan: true,
                     archived: archived.has(summary.id),
                     archiveSession,
                     unarchiveSession,
@@ -3330,75 +4563,12 @@ window.__ModuleLoader__.load({
                     openSession,
                     renameSession,
                     dragging: drag && drag.kind === 'session' && drag.id === summary.id,
-                    flipKey: 'row:' + summary.id,
                     onDragStart: (event, id) => {
-                      beginDrag('session', event, { id, workspaceId: wsKey, sectionId: '' });
+                      beginDrag('session', event, { id, workspaceId: '', sectionId: '' });
                     },
-                    onDragOver: (event, id) => onRowDragOver(event, id, wsKey, '', node.unassigned.map((row) => row.id)),
-                    onDrop: (event) => onRowDrop(event, wsKey, ''),
                     onDragEnd: endDrag,
-                    canMoveUp: rowIndex > 0,
-                    canMoveDown: rowIndex < node.unassigned.length - 1,
-                    onMoveUp: () => moveSessionInGroup(wsKey, '', node.unassigned.map((row) => row.id), rowIndex, -1),
-                    onMoveDown: () => moveSessionInGroup(wsKey, '', node.unassigned.map((row) => row.id), rowIndex, 1),
-                  })))
-              ))
-            )
-          );
-      });
-
-      const orphanCollapsed = collapsedWorkspaces['__orphan__'] === true;
-      // While a session is dragged out of the orphan area, hide it there so the
-      // preview does not show it twice.
-      const shownOrphans = preview && preview.kind === 'session' && preview.fromWs === '' && preview.toWs !== ''
-        ? orphanSessions.filter((summary) => summary.id !== preview.sourceId)
-        : orphanSessions;
-      if (shownOrphans.length > 0) {
-        body.push(h('section', { className: 'dssx-browser-ws dssx-orphan-ws', key: '__orphan__' },
-          h('header', {
-            className: 'dssx-browser-ws-head',
-            onClick: (event) => headerToggleClick(event, () => toggleKey(collapsedWorkspaces, setCollapsedWorkspaces, '__orphan__')),
-          },
-            h(RingCaret, {
-              color: '#1f1f1f',
-              size: 36,
-              open: !orphanCollapsed,
-              title: t('orphan.label'),
-              onClick: () => toggleKey(collapsedWorkspaces, setCollapsedWorkspaces, '__orphan__'),
-            }),
-            h('span', { className: 'dssx-browser-ws-title' }, t('orphan.label')),
-            h('span', { className: cx('dssx-browser-count', 'dssx-browser-ws-count') }, shownOrphans.length),
-            h('span', { className: 'dssx-row-cost dssx-row-cost-static' }, formatCny(sumCost(shownOrphans)))
-          ),
-          h('div', { className: cx('dssx-collapse', orphanCollapsed && 'dssx-collapsed') },
-            h('div', { className: 'dssx-collapse-inner dssx-browser-groups' },
-            h('div', { className: 'dssx-browser-group' },
-              h('div', { className: 'dssx-browser-rows' },
-                shownOrphans.map((summary) => h(BrowserSessionRow, {
-                  key: summary.id,
-                  t,
-                  cost: costOf(summary.id),
-                  contextPercent: contextPercentOf(summary.id),
-                  scheduled: scheduledIds.has(String(summary.id)),
-                  running: runningOf(summary.id),
-                  completed: completedOf(summary.id),
-                  pending: pendingOf(summary.id),
-                  summary,
-                  current: summary.id === mainSessionId,
-                  section: null,
-                  orphan: true,
-                  archived: archived.has(summary.id),
-                  archiveSession,
-                  unarchiveSession,
-                  renderSlot,
-                  openSession,
-                  renameSession,
-                  dragging: drag && drag.kind === 'session' && drag.id === summary.id,
-                  onDragStart: (event, id) => {
-                    beginDrag('session', event, { id, workspaceId: '', sectionId: '' });
                   },
-                  onDragEnd: endDrag,
-                })))
+                }, rowTreeConfig))))
             )
           ))
         ));
@@ -3419,7 +4589,26 @@ window.__ModuleLoader__.load({
         : toastNode;
 
       return h(React.Fragment, null,
-        h('div', { className: 'dssx-browser' },
+        h('div', {
+          className: 'dssx-browser',
+          // The whole browser area is a workspace drop fallback: the toolbar
+          // above and the footer below belong to the sidebar too, and a release
+          // there used to leave no drop target at all. Sections stop the event
+          // on their own, so this fallback never commits twice. Other drag kinds
+          // keep bubbling to their own targets untouched.
+          onDragOver: (event) => {
+            if (!drag || drag.kind !== 'workspace') return;
+            event.preventDefault();
+            event.stopPropagation();
+          },
+          onDrop: (event) => {
+            if (!drag || drag.kind !== 'workspace') return;
+            event.preventDefault();
+            event.stopPropagation();
+            commitWorkspaceDrop();
+            endDrag();
+          },
+        },
           tools,
           h('div', { className: 'dssx-browser-scroll', ref: scrollRef }, body),
           h('div', { className: 'dssx-browser-foot' },
@@ -3469,6 +4658,10 @@ window.__ModuleLoader__.load({
       '.dssx-row-time{flex:none;font-size:11px;color:var(--dsw-alias-label-secondary,#8a857c)}',
       '.dssx-menu-anchor{position:relative;flex:none}',
       '.dssx-pop{position:absolute;right:0;top:calc(100% + 4px);z-index:60;min-width:190px;max-height:320px;overflow:auto;background:var(--dsw-alias-bg-overlay,#fff);border:1px solid var(--dsw-alias-border-l1,#e3e0da);border-radius:10px;box-shadow:0 12px 32px rgba(30,25,18,.16);padding:4px}',
+      '.dssx-rowmenu{position:fixed;z-index:200;min-width:200px;max-height:360px;overflow:auto;background:#fff;color:#1f1f1f;border:1px solid var(--dsw-alias-border-l1,#e3e0da);border-radius:10px;box-shadow:0 12px 32px rgba(30,25,18,.18);padding:4px}',
+      '.dssx-rowmenu-sub{z-index:201}',
+      '.dssx-rowmenu-chevron{margin-left:auto;padding-left:8px;opacity:.55;font-size:13px;line-height:1}',
+      '.dssx-rowmenu-error{color:var(--dsw-alias-state-error-primary,#b42318);font-size:12px;padding:6px 8px 4px}',
       '.dssx-pop-label{font-size:11px;color:var(--dsw-alias-label-secondary,#8a857c);padding:6px 8px 4px}',
       '.dssx-pop-item{display:flex;align-items:center;gap:8px;width:100%;padding:6px 8px;border:none;background:transparent;border-radius:7px;color:inherit;font:inherit;text-align:left;cursor:pointer}',
       '.dssx-pop-item:hover{background:var(--dsw-alias-interactive-bg-hover,#f2efe9)}',
@@ -3517,8 +4710,7 @@ window.__ModuleLoader__.load({
       '.dssx-browser-tool{width:28px;height:28px;flex:none;border:none;background:transparent;border-radius:6px;color:var(--dsw-alias-label-secondary,#6b6b6b);cursor:pointer;font-size:14px;line-height:1;display:inline-flex;align-items:center;justify-content:center;padding:0;opacity:.8;transition:opacity .12s ease}',
       '.dssx-browser-tool:hover{background:var(--dsw-alias-interactive-bg-hover,#f2efe9);color:var(--dsw-alias-label-primary,#1f1f1f);opacity:1}',
       '.dssx-browser-tool.dssx-active{background:var(--dsw-alias-interactive-bg-hover,#f2efe9);color:var(--dsw-alias-brand-primary,#c25a37);opacity:1}',
-      '.dssx-browser-tool.dssx-ws-delete{opacity:0;color:var(--dsw-alias-state-error-primary,#d93025);transition:opacity .12s ease,background-color .12s ease}',
-      '.dssx-browser-ws-head:hover .dssx-browser-tool.dssx-ws-delete,.dssx-browser-tool.dssx-ws-delete:focus-visible{opacity:1}',
+      '.dssx-browser-tool.dssx-ws-delete{color:var(--dsw-alias-state-error-primary,#d93025);transition:opacity .12s ease,background-color .12s ease}',
       '.dssx-browser-tool.dssx-ws-delete:hover{background:rgba(217,48,37,.10);color:var(--dsw-alias-state-error-primary,#d93025)}',
       '.dssx-browser-tool.dssx-ws-delete.dssx-danger{opacity:1;background:rgba(217,48,37,.10);color:var(--dsw-alias-state-error-primary,#c0392b)}',
       '.dssx-browser-tool.dssx-ws-delete.dssx-danger:hover{background:rgba(217,48,37,.16);color:var(--dsw-alias-state-error-primary,#c0392b)}',
@@ -3527,9 +4719,11 @@ window.__ModuleLoader__.load({
       '.dssx-browser-scroll::-webkit-scrollbar-track{background:transparent}',
       '.dssx-browser-scroll::-webkit-scrollbar-thumb{background:var(--dsw-alias-border-l2,#d6d0c6);border-radius:4px}',
       '.dssx-browser-scroll::-webkit-scrollbar-thumb:hover{background:var(--dsw-alias-label-secondary,#a39d92)}',
-      '.dssx-unassigned-group{margin-top:4px;padding-top:4px;border-top:1px dashed var(--dsw-alias-border-l1,#e3e0da)}',
-      '.dssx-browser-ws{margin-top:10px;position:relative}',
-      '.dssx-browser-ws-head{display:flex;align-items:center;gap:5px;padding:5px 6px;border-radius:6px;cursor:pointer}',
+      '.dssx-browser-ws{margin-top:12px;position:relative}',
+      '.dssx-browser-ws:first-child{margin-top:4px}',
+      '.dssx-browser-ws+.dssx-browser-ws{border-top:1px solid var(--dsw-alias-border-l1,#f0ece5);padding-top:8px}',
+      '.dssx-browser-ws-head{position:relative;display:flex;align-items:center;gap:5px;padding:5px 6px;border-radius:6px;cursor:pointer}',
+      '.dssx-ws-error{font-size:11px;line-height:15px;color:var(--dsw-alias-state-error-primary,#b42318);padding:1px 8px 4px 34px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}',
       '.dssx-browser-ws-head:hover{background:var(--dsw-alias-interactive-bg-hover,#f2efe9)}',
       '.dssx-browser-caret{width:22px;height:22px;flex:none;border:none;background:transparent;border-radius:5px;color:var(--dsw-alias-label-secondary,#8a857c);cursor:pointer;font-size:10px;line-height:1;display:inline-flex;align-items:center;justify-content:center;padding:0}',
       '.dssx-browser-caret:hover{background:var(--dsw-alias-interactive-bg-hover,#f2efe9)}',
@@ -3550,25 +4744,29 @@ window.__ModuleLoader__.load({
       '.dssx-ring-arrow-mini{opacity:0;transition:opacity .3s ease}',
       '.dssx-browser-group-head:hover .dssx-ring-arrow-mini,.dssx-browser-ws-head:hover .dssx-ring-arrow-mini,.dssx-ring-caret:hover .dssx-ring-arrow-mini{opacity:1}',
       '@media (prefers-reduced-motion: reduce){.dssx-ring-arrow,.dssx-ring-arrow-scale,.dssx-ring-arrow-squash{transition:none}}',
-      '.dssx-browser-ws-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;line-height:20px;font-weight:600;color:var(--dsw-alias-label-primary,#1f1f1f);letter-spacing:.01em;margin-left:-18px;transition:transform .2s ease}',
-      '.dssx-browser-ws-head:hover .dssx-browser-ws-title{transform:translateX(20px)}',
+      '.dssx-browser-ws-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;line-height:20px;font-weight:600;color:var(--dsw-alias-label-primary,#1f1f1f);letter-spacing:.01em;margin-left:-15px;transition:transform .2s ease}',
+      '.dssx-browser-ws-head:hover .dssx-browser-ws-title{transform:translateX(16px)}',
       '.dssx-browser-count{flex:none;font-size:12px;color:var(--dsw-alias-label-secondary,#a39d92)}',
-      '.dssx-browser-ws-count{font-size:11px;line-height:15px;min-width:20px;padding:0 6px;border-radius:999px;background:var(--dsw-alias-bg-layer-2,#efeae2);text-align:center}',
-      '.dssx-browser-groups{padding-left:10px}',
+      '.dssx-browser-ws-count{background:transparent;min-width:0;padding:0 2px;font-size:11px;line-height:16px;color:var(--dsw-alias-label-tertiary,#a39d92);font-variant-numeric:tabular-nums}',
+      '.dssx-browser-groups{padding-left:0}',
       '.dssx-browser-group{margin:2px 0;position:relative}',
-      '.dssx-browser-group-head{display:flex;align-items:center;gap:5px;padding:3px 6px 3px 4px;border-radius:6px;cursor:pointer}',
+      '.dssx-browser-group-head{position:relative;display:flex;align-items:center;gap:5px;padding:3px 6px 3px 4px;border-radius:6px;cursor:pointer}',
       '.dssx-browser-group-head:hover{background:var(--dsw-alias-interactive-bg-hover,#f2efe9)}',
-      '.dssx-browser-group-actions{display:flex;align-items:center;gap:1px;flex:none;opacity:0;transition:opacity .12s ease}',
-      '.dssx-browser-group-head:hover .dssx-browser-group-actions,.dssx-browser-group-actions:focus-within,.dssx-browser-group-actions.dssx-visible{opacity:1}',
+      '.dssx-browser-group-actions{display:flex;align-items:center;gap:1px;flex:none}',
       '.dssx-browser-group-actions .dssx-browser-tool{width:24px;height:24px;opacity:1}',
       '.dssx-browser-group-actions .dssx-browser-tool.dssx-ws-delete{opacity:1}',
       '.dssx-color-row{display:flex;align-items:center;gap:6px;padding:3px 8px 6px 30px;flex-wrap:wrap}',
       '.dssx-color-swatch{width:16px;height:16px;border-radius:50%;border:1px solid var(--dsw-alias-border-l1,#e3e0da);cursor:pointer;padding:0}',
       '.dssx-color-swatch.dssx-active{outline:2px solid var(--dsw-alias-brand-primary,#d97757);outline-offset:1px}',
-      '.dssx-browser-group-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;line-height:20px;color:var(--dsw-alias-label-secondary,#6b6b6b);margin-left:-15px;transition:transform .2s ease}',
+      '.dssx-browser-group-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;line-height:20px;color:var(--dsw-alias-label-secondary,#6b6b6b);margin-left:-12px;transition:transform .2s ease}',
       '.dssx-browser-group-head:hover .dssx-browser-group-name{transform:translateX(20px)}',
-      '.dssx-unassigned-name{color:var(--dsw-alias-label-secondary,#a39d92);font-size:12px;line-height:17px;font-weight:600}',
       '.dssx-browser-rows{display:flex;flex-direction:column;gap:1px}',
+      // Subagent branch: ordinary rows, just indented one step and never a drag
+      // source. The marker badge adds no width, so the title keeps its column.
+      '.dssx-subagent-rows{display:flex;flex-direction:column;gap:1px}',
+      '.dssx-browser-row.dssx-nested-row{margin-left:16px}',
+      '.dssx-browser-row.dssx-nested-row .dssx-browser-open{font-size:13px}',
+      '.dssx-browser-row.dssx-nested-row .dssx-rename-inline .dssx-input{font-size:13px}',
       // Grid 0fr->1fr collapse: the ring arrow flips immediately and the list slides
       // closed, with the rows below following continuously (no jump on either side).
       '.dssx-collapse{display:grid;grid-template-rows:1fr;transition:grid-template-rows .28s cubic-bezier(.3,.9,.4,1)}',
@@ -3576,10 +4774,14 @@ window.__ModuleLoader__.load({
       '.dssx-collapse-inner{overflow:hidden;min-height:0;transition:opacity .24s ease,transform .24s ease,visibility 0s linear 0s}',
       '.dssx-collapse.dssx-collapsed>.dssx-collapse-inner{opacity:0;transform:translateX(-16px);visibility:hidden;transition:opacity .24s ease,transform .24s ease,visibility 0s linear .28s}',
       '@media (prefers-reduced-motion: reduce){.dssx-collapse{transition:none}.dssx-collapse-inner{transition:none}}',
-      '.dssx-browser-row{display:flex;align-items:center;gap:2px;padding:1px 3px 1px 2px;margin-left:14px;border-radius:6px;position:relative;cursor:pointer}',
+      '.dssx-browser-row{display:flex;align-items:center;gap:2px;padding:2px 4px;margin-left:0;border-radius:7px;position:relative;cursor:pointer}',
       '.dssx-browser-row:hover{background:var(--dsw-alias-interactive-bg-hover,#f2efe9)}',
       '.dssx-browser-row.dssx-current{background:var(--dsw-alias-bg-layer-2,#f4f1eb)}',
       '.dssx-browser-row.dssx-current:hover{background:var(--dsw-alias-interactive-bg-hover,#efeae2)}',
+      // Keyboard focus reveals the tail without a pointer: fill the row/header
+      // with the hover colour so the revealed controls sit on the same surface
+      // as in the mouse-hover state.
+      '.dssx-browser-row:focus-within,.dssx-browser-ws-head:focus-within,.dssx-browser-group-head:focus-within{background:var(--dsw-alias-interactive-bg-hover,#f2efe9)}',
       '.dssx-browser-row.dssx-dragging{opacity:.45}',
       // Drag reorder: the moved block fades, the list reorders live underneath
       // (no insert line). A Session dropped on a group's blank area tints the
@@ -3587,14 +4789,15 @@ window.__ModuleLoader__.load({
       '.dssx-browser-ws.dssx-dragging,.dssx-browser-group.dssx-dragging{opacity:.45}',
       '.dssx-browser-group.dssx-drop-into{background:var(--dsw-alias-interactive-bg-hover,#f2efe9);border-radius:8px;transition:background-color .12s ease}',
       '@media (prefers-reduced-motion: reduce){.dssx-browser-group.dssx-drop-into{transition:none}}',
-      '.dssx-browser-seat{min-width:16px;flex:none;display:inline-flex;align-items:center;justify-content:center;gap:-2px}',
+      '.dssx-browser-seat{min-width:16px;flex:none;display:inline-flex;align-items:center;justify-content:center;gap:0}',
+      '.dssx-browser-seat:empty{display:none}',
       // Ring + context ring + title shift together on row hover (ported from the
       // task list's title nudge).
       '.dssx-browser-shift{display:flex;align-items:center;gap:2px;flex:1;min-width:0;transition:transform .4s cubic-bezier(.3,.9,.4,1)}',
       // The session marker keeps 13px of dead space on its right (the hover arrow
       // grows into it); pull it back so ring, clock, context ring and title sit at
       // the same rhythm.
-      '.dssx-browser-row>.dssx-marker{margin-right:-15px}',
+      '.dssx-browser-row>.dssx-marker{margin-right:-15px;margin-left:-4px}',
       // Ring stays put; only clock / context ring / title shift right, far enough
       // to clear the arrow that now folds back 2px earlier.
       '.dssx-browser-row:hover .dssx-browser-shift{transform:translateX(12px)}',
@@ -3603,6 +4806,12 @@ window.__ModuleLoader__.load({
       '.dssx-browser-row.dssx-current .dssx-browser-shift{transform:translateX(12px)}',
       '@media (prefers-reduced-motion: reduce){.dssx-browser-shift{transition:none}}',
       '.dssx-marker{display:inline-flex;flex:none;color:var(--dsw-alias-label-tertiary,#a39d92);transition:color .3s ease}',
+      // Fold entry lives in the hover/focus action bar (first slot). It uses the
+      // same 24px icon-button language as the row actions; the count is 11px and
+      // only rendered below 100 so the 24px box never overflows.
+      '.dssx-subagent-toggle{gap:1px;flex:none;font-variant-numeric:tabular-nums}',
+      '.dssx-subagent-toggle:hover,.dssx-subagent-toggle:focus-visible{color:var(--dsw-alias-brand-primary,#d97757)}',
+      '.dssx-subagent-count{font-size:11px;line-height:1;color:inherit}',
       '.dssx-marker-on,.dssx-browser-row:hover .dssx-marker{color:var(--dsw-alias-brand-primary,#d97757)}',
       '.dssx-marker-dot{transform-origin:13px 15px;transform:rotate(180deg);transition:transform .5s cubic-bezier(.3,.9,.4,1)}',
       '.dssx-marker-on .dssx-marker-dot{transform:rotate(0deg)}',
@@ -3632,33 +4841,65 @@ window.__ModuleLoader__.load({
       '@keyframes dssx-ctx-spin{to{transform:rotate(360deg)}}',
       '@media (prefers-reduced-motion: reduce){.dssx-ctx-spin{animation:none}}',
       '.dssx-clock{display:inline-flex;align-items:center;justify-content:center;width:18px;height:18px;flex:none;color:var(--dsw-alias-label-tertiary,#a39d92)}',
-      '.dssx-browser-open{flex:1;min-width:0;display:flex;align-items:center;gap:6px;border:none;background:transparent;color:inherit;font:inherit;font-size:15px;line-height:24px;text-align:left;cursor:pointer;padding:4px 2px;border-radius:6px}',
+      '.dssx-browser-open{flex:1;min-width:0;display:flex;align-items:center;gap:6px;border:none;background:transparent;color:inherit;font:inherit;font-size:14px;line-height:20px;text-align:left;cursor:pointer;padding:3px 2px;border-radius:6px}',
       // Inline rename sits where the title button was, so the row height does not jump.
       '.dssx-rename-inline{flex:1;min-width:0;display:flex;align-items:center}',
-      '.dssx-rename-inline .dssx-input{padding:2px 6px;font-size:15px;line-height:24px;border-radius:6px}',
+      '.dssx-rename-inline .dssx-input{padding:2px 6px;font-size:14px;line-height:20px;border-radius:6px}',
       '.dssx-input-invalid{border-color:var(--dsw-alias-state-danger-primary,#d14343);box-shadow:0 0 0 2px rgba(209,67,67,.14)}',
       '.dssx-browser-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
-      '.dssx-browser-time{flex:none;margin-left:6px;font-size:11px;line-height:18px;color:var(--dsw-alias-label-tertiary,#a39d92)}',
-      '.dssx-browser-actions{display:flex;align-items:center;gap:1px;flex:none;opacity:0}',
-      '.dssx-browser-row:hover .dssx-browser-actions,.dssx-browser-actions:focus-within{opacity:1}',
-      '.dssx-browser-tail{position:relative;display:flex;align-items:center;gap:1px;flex:none}',
+      '.dssx-browser-time{flex:none;margin-left:auto;font-size:11px;line-height:18px;color:var(--dsw-alias-label-tertiary,#a39d92);transition:opacity .12s ease}',
+      // The stamp yields to the hover overlay so the two never overlap.
+      '.dssx-browser-row:hover .dssx-browser-time,.dssx-browser-row:focus-within .dssx-browser-time{opacity:0}',
+      '.dssx-browser-actions{display:flex;align-items:center;gap:1px;flex:none}',
+      // Hover overlay: taken out of flow so the title keeps the full row width.
+      // The theme's hover fill can be semi-transparent, so `background:inherit`
+      // let the title show through the buttons. Stack an opaque sidebar fill
+      // under the hover colour: the result matches the row/header hover fill
+      // exactly, and nothing underneath can bleed through.
+      '.dssx-browser-tail{position:absolute;right:4px;top:50%;transform:translateY(-50%);display:flex;align-items:center;gap:4px;background-color:var(--dsw-specific-sidebar-fill,var(--dsw-alias-bg-base,#fff));background-image:linear-gradient(var(--dsw-alias-interactive-bg-hover,#f2efe9),var(--dsw-alias-interactive-bg-hover,#f2efe9));padding-left:8px;border-radius:7px;opacity:0;pointer-events:none;transition:opacity .12s ease}',
+      '.dssx-browser-ws-head>.dssx-browser-tail,.dssx-browser-group-head>.dssx-browser-tail{right:2px;gap:1px;border-radius:6px}',
+      '.dssx-browser-row:hover>.dssx-browser-tail,.dssx-browser-row:focus-within>.dssx-browser-tail,.dssx-browser-ws-head:hover>.dssx-browser-tail,.dssx-browser-ws-head:focus-within>.dssx-browser-tail,.dssx-browser-group-head:hover>.dssx-browser-tail,.dssx-browser-group-head:focus-within>.dssx-browser-tail,.dssx-browser-tail.dssx-visible{opacity:1;pointer-events:auto}',
+      // Hover fade (280px, measured in the static preview):
+      // `covered` = title box right edge − tail left edge. Cost rows / heads
+      // measure row ~121px / ws ~130px / group ~150px; their masks are kept
+      // (the transparent stop sits 1.6–7.6px under the bar for the sampled
+      // states). Rows/heads whose cost is unknown have their own selectors
+      // below, because the empty first slot makes the bar narrower.
+      '.dssx-browser-row:hover .dssx-browser-name,.dssx-browser-row:focus-within .dssx-browser-name{-webkit-mask-image:linear-gradient(to right,#000 calc(100% - 145px),transparent calc(100% - 113px));mask-image:linear-gradient(to right,#000 calc(100% - 145px),transparent calc(100% - 113px))}',
+      // Nested rows drop the two order buttons, so their hover bar is ~54px
+      // narrower. Cost leaf: covered 66.61px (hover, current) / 60.69px
+      // (non-current); 59/91 keeps both fades under the bar (1.7–7.6px inside).
+      '.dssx-browser-row.dssx-nested-row:hover .dssx-browser-name,.dssx-browser-row.dssx-nested-row:focus-within .dssx-browser-name{-webkit-mask-image:linear-gradient(to right,#000 calc(100% - 91px),transparent calc(100% - 59px));mask-image:linear-gradient(to right,#000 calc(100% - 91px),transparent calc(100% - 59px))}',
+      // Rows that own subagents replace the cost badge with a 24px fold button,
+      // so their action bar is narrower than the cost versions. Measured
+      // covered = 107.06px (parent hover) and 53.06px (nested fold hover); the
+      // transparent stop sits 2px under the bar and the fade spans 32px.
+      '.dssx-browser-row.dssx-has-subagents:hover .dssx-browser-name,.dssx-browser-row.dssx-has-subagents:focus-within .dssx-browser-name{-webkit-mask-image:linear-gradient(to right,#000 calc(100% - 137px),transparent calc(100% - 105px));mask-image:linear-gradient(to right,#000 calc(100% - 137px),transparent calc(100% - 105px))}',
+      '.dssx-browser-row.dssx-nested-row.dssx-has-subagents:hover .dssx-browser-name,.dssx-browser-row.dssx-nested-row.dssx-has-subagents:focus-within .dssx-browser-name{-webkit-mask-image:linear-gradient(to right,#000 calc(100% - 83px),transparent calc(100% - 51px));mask-image:linear-gradient(to right,#000 calc(100% - 83px),transparent calc(100% - 51px))}',
+      // No-cost leaves: the first slot is absent, so the bar is only the
+      // action buttons. Covered = 79.06px (row) / 19.14px (nested leaf);
+      // transparent stops 77px / 17px, i.e. 2px under the bar.
+      '.dssx-browser-row.dssx-no-cost:hover .dssx-browser-name,.dssx-browser-row.dssx-no-cost:focus-within .dssx-browser-name{-webkit-mask-image:linear-gradient(to right,#000 calc(100% - 109px),transparent calc(100% - 77px));mask-image:linear-gradient(to right,#000 calc(100% - 109px),transparent calc(100% - 77px))}',
+      '.dssx-browser-row.dssx-nested-row.dssx-no-cost:hover .dssx-browser-name,.dssx-browser-row.dssx-nested-row.dssx-no-cost:focus-within .dssx-browser-name{-webkit-mask-image:linear-gradient(to right,#000 calc(100% - 49px),transparent calc(100% - 17px));mask-image:linear-gradient(to right,#000 calc(100% - 49px),transparent calc(100% - 17px))}',
+      '.dssx-browser-ws-head:hover .dssx-browser-ws-title,.dssx-browser-ws-head:focus-within .dssx-browser-ws-title{-webkit-mask-image:linear-gradient(to right,#000 calc(100% - 160px),transparent calc(100% - 128px));mask-image:linear-gradient(to right,#000 calc(100% - 160px),transparent calc(100% - 128px))}',
+      '.dssx-browser-ws-head.dssx-no-cost:hover .dssx-browser-ws-title,.dssx-browser-ws-head.dssx-no-cost:focus-within .dssx-browser-ws-title{-webkit-mask-image:linear-gradient(to right,#000 calc(100% - 121px),transparent calc(100% - 89px));mask-image:linear-gradient(to right,#000 calc(100% - 121px),transparent calc(100% - 89px))}',
+      '.dssx-browser-group-head:hover .dssx-browser-group-name,.dssx-browser-group-head:focus-within .dssx-browser-group-name{-webkit-mask-image:linear-gradient(to right,#000 calc(100% - 180px),transparent calc(100% - 148px));mask-image:linear-gradient(to right,#000 calc(100% - 180px),transparent calc(100% - 148px))}',
+      '.dssx-browser-group-head.dssx-no-cost:hover .dssx-browser-group-name,.dssx-browser-group-head.dssx-no-cost:focus-within .dssx-browser-group-name{-webkit-mask-image:linear-gradient(to right,#000 calc(100% - 141px),transparent calc(100% - 109px));mask-image:linear-gradient(to right,#000 calc(100% - 141px),transparent calc(100% - 109px))}',
       '.dssx-row-cost{position:absolute;right:0;top:50%;transform:translateY(-50%);z-index:1;font-size:12px;line-height:18px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--dsw-alias-label-secondary,#5f5b55);background:linear-gradient(rgba(0,0,0,.32),rgba(0,0,0,.32)) left top/4px 1px no-repeat,linear-gradient(rgba(0,0,0,.32),rgba(0,0,0,.32)) left top/1px 4px no-repeat,linear-gradient(rgba(0,0,0,.32),rgba(0,0,0,.32)) right top/4px 1px no-repeat,linear-gradient(rgba(0,0,0,.32),rgba(0,0,0,.32)) right top/1px 4px no-repeat,linear-gradient(rgba(0,0,0,.32),rgba(0,0,0,.32)) left bottom/4px 1px no-repeat,linear-gradient(rgba(0,0,0,.32),rgba(0,0,0,.32)) left bottom/1px 4px no-repeat,linear-gradient(rgba(0,0,0,.32),rgba(0,0,0,.32)) right bottom/4px 1px no-repeat,linear-gradient(rgba(0,0,0,.32),rgba(0,0,0,.32)) right bottom/1px 4px no-repeat,rgba(0,0,0,.07);border-radius:4px;padding:0 4px;white-space:nowrap;pointer-events:none;transition:opacity .12s ease}',
       '.dssx-row-cost-static{position:static;transform:none;pointer-events:auto}',
-      '.dssx-browser-row:hover .dssx-row-cost,.dssx-browser-group-head:hover .dssx-row-cost,.dssx-browser-ws-head:hover .dssx-row-cost,.dssx-browser-tail:focus-within .dssx-row-cost{opacity:0}',
-      '.dssx-browser-ws-head .dssx-browser-tail .dssx-browser-tool{opacity:0;transition:opacity .12s ease}',
-      '.dssx-browser-ws-head:hover .dssx-browser-tail .dssx-browser-tool,.dssx-browser-ws-head .dssx-browser-tail:focus-within .dssx-browser-tool{opacity:.8}',
-      '.dssx-browser-ws-head:hover .dssx-browser-tail .dssx-browser-tool:hover,.dssx-browser-ws-head:hover .dssx-browser-tail .dssx-browser-tool:focus-visible{opacity:1}',
+      // Costs sit inside the tails now: no absolute corner badge, and the
+      // waterfall bracket background is a hover-only affordance.
+      '.dssx-browser-row .dssx-row-cost,.dssx-browser-ws-head .dssx-row-cost,.dssx-browser-group-head .dssx-row-cost{position:static;transform:none}',
       '.dssx-browser-actions .dssx-icon-btn{width:26px;height:26px}',
       '.dssx-browser-actions .dssx-icon-btn:disabled{opacity:.3;cursor:default;background:transparent}',
       '.dssx-browser-group-actions .dssx-browser-tool:disabled{opacity:.3;cursor:default;background:transparent}',
-      '.dssx-browser-empty-row{padding:4px 6px 4px 24px;font-size:13px;color:var(--dsw-alias-label-secondary,#a39d92)}',
+      '.dssx-browser-empty-row{padding:4px 6px 4px 29px;font-size:13px;color:var(--dsw-alias-label-secondary,#a39d92)}',
       '.dssx-browser-empty{padding:24px 10px;text-align:center;font-size:13px;line-height:1.6;color:var(--dsw-alias-label-secondary,#a39d92)}',
       '.dssx-browser-foot{padding:6px 8px;border-top:1px solid var(--dsw-alias-border-l1,#f0ece5);font-size:13px}',
       '.dssx-browser-open-panel{display:inline-flex;align-items:center;gap:5px;font-size:12px;padding:2px 4px}',
       '.dssx-browser-rail{display:flex;justify-content:center;padding:6px 0}',
       '.dssx-rail-btn{width:30px;height:30px;border:none;background:transparent;border-radius:7px;color:var(--dsw-alias-label-secondary,#6b6b6b);cursor:pointer;display:inline-flex;align-items:center;justify-content:center;padding:0}',
       '.dssx-rail-btn:hover{background:var(--dsw-alias-interactive-bg-hover,#f2efe9);color:var(--dsw-alias-label-primary,#1f1f1f)}',
-      '.dssx-rowmenu{position:fixed;z-index:95;min-width:200px;max-height:360px;overflow:auto;background:var(--dsw-alias-bg-overlay,#fff);border:1px solid var(--dsw-alias-border-l1,#e3e0da);border-radius:10px;box-shadow:0 12px 32px rgba(30,25,18,.18);padding:4px}',
       /* Frame resize handles are shipped invisible (8px transparent, cursor only). Widen the hit area and reveal a brand bar on hover/drag. */
       '[data-side="sidebar"][class*="_handle"],[data-side="rightbar"][class*="_handle"]{width:16px!important;margin-left:-8px!important;background:transparent}',
       'html[data-windows-titlebar] [data-side="sidebar"][class*="_handle"]::before{left:7px!important}',
@@ -3682,7 +4923,7 @@ window.__ModuleLoader__.load({
         return null;
       }
       const style = document.createElement('style');
-      style.dataset.plugin = '@local/dsh-workspace-frontend';
+      style.dataset.plugin = PKG;
       style.dataset.pluginCss = CSS_ID;
       style.textContent = CSS;
       document.head.appendChild(style);
@@ -3803,6 +5044,9 @@ window.__ModuleLoader__.load({
           deleteWorkspace: async (workspaceId) => {
             await ctx.workspaces.delete(workspaceId);
           },
+          renameWorkspace: async (workspaceId, title) => {
+            await ctx.workspaces.rename(workspaceId, title);
+          },
           // Reorder one Workspace; the Controller applies an optimistic order
           // and reconciles with the Host's complete result.
           moveWorkspaceBefore: (workspaceId, beforeWorkspaceId) => {
@@ -3870,6 +5114,157 @@ window.__ModuleLoader__.load({
         id: 'session-groups.move-dialog',
         locale: NS,
       }, MoveToSectionDialog));
+
+      ctx.slots.inject('shell.overlay', () => ctx.slots.register({
+        name: 'shell.overlay',
+        id: 'session-groups.row-menu',
+        locale: NS,
+        inject: () => ({
+          openSession: (sessionId) => {
+            ctx.uiWorkspace.openSession(sessionId);
+          },
+          archiveSession: (sessionId) => {
+            ctx.uiWorkspace.archiveSession(sessionId).catch(() => {});
+          },
+          unarchiveSession: (sessionId) => {
+            ctx.uiWorkspace.unarchiveSession(sessionId).catch(() => {});
+          },
+        }),
+      }, RowMenuOverlay));
+
+      // 会话正文里的路径：右键打开共享文件菜单（含「在应用中打开」）。
+      // 文本手势派发不携带坐标，先捕获阶段记下手势，等消费者拿到 sessionId 再解析 token。
+      ctx.inject(['contextMenus', 'uiConversation'], function chatPathMenu(scope) {
+        let pending = null;
+
+        const PATH_CHAR = /[0-9A-Za-z_./\\~$@:+-]/;
+
+        // Paths in prose are often wrapped in quotes/brackets or followed by punctuation.
+        const cleanup = (raw) => String(raw)
+          .trim()
+          .replace(/^[('"`（「『【[<]+/u, '')
+          .replace(/[.,;:!?，。；：！？、)）\]」』】>》"'`]+$/u, '');
+
+        // Reject URLs and prose tokens; `fromCode` trusts inline-code content as-is.
+        const looksLikePath = (token, fromCode) => {
+          if (token.length < 2 || token.length > 400) return false;
+          if (/\s/.test(token)) return false;
+          if (/[<>|"]/.test(token)) return false;
+          if (/^[A-Za-z][A-Za-z0-9+.-]*:\/\//.test(token)) return false;
+          if (!token.includes('/') && !token.includes('\\')) return false;
+          if (/[/\\]$/u.test(token)) return true;
+          const last = token.split(/[/\\]/u).pop();
+          if (!last) return false;
+          if (fromCode === true) return true;
+          if (/^[A-Za-z]:[\\/]/u.test(token)) return true;
+          if (/^\\\\/u.test(token)) return true;
+          if (/\.[A-Za-z0-9]{1,12}$/.test(last)) return true;
+          return token.startsWith('./') || token.startsWith('../') || token.startsWith('~/') || token.startsWith('/');
+        };
+
+        // Viewport point -> text caret; Chromium exposes both names depending on version.
+        const textPositionAt = (doc, x, y) => {
+          if (typeof doc.caretPositionFromPoint === 'function') {
+            try {
+              const position = doc.caretPositionFromPoint(x, y);
+              if (position && position.offsetNode) return { node: position.offsetNode, offset: position.offset };
+            } catch (error) {
+              // Fall through to the WebKit variant.
+            }
+          }
+          if (typeof doc.caretRangeFromPoint === 'function') {
+            try {
+              const range = doc.caretRangeFromPoint(x, y);
+              if (range && range.startContainer) return { node: range.startContainer, offset: range.startOffset };
+            } catch (error) {
+              // No caret at this point.
+            }
+          }
+          return null;
+        };
+
+        const resolveToken = (event, source) => {
+          const target = event.target instanceof Element ? event.target : null;
+          const code = target === null ? null : target.closest('code');
+          if (code !== null && source.contains(code)) {
+            const inner = cleanup(code.textContent || '');
+            if (looksLikePath(inner, true)) return inner;
+          }
+          if (typeof document === 'undefined') return null;
+          const point = textPositionAt(document, event.clientX, event.clientY);
+          if (point === null || point.node === null || point.node.nodeType !== 3) return null;
+          if (!source.contains(point.node)) return null;
+          const text = point.node.nodeValue || '';
+          const expand = (index) => {
+            let start = index;
+            let end = index;
+            while (start > 0 && PATH_CHAR.test(text.charAt(start - 1))) start -= 1;
+            while (end < text.length && PATH_CHAR.test(text.charAt(end))) end += 1;
+            return { start, end };
+          };
+          // Caret offsets sometimes land just past the last character; retry one step left.
+          let span = expand(point.offset);
+          if (span.end - span.start < 2) span = expand(Math.max(0, point.offset - 1));
+          const token = cleanup(text.slice(span.start, span.end));
+          if (!looksLikePath(token, false)) return null;
+          return token;
+        };
+
+        scope.effect(() => scope.uiConversation.interactions.register({
+          id: 'session-groups.open-path',
+          onInteraction(request) {
+            // A real selection already brings Electron's native copy menu; adding ours
+            // would stack two menus (the main process menu ignores preventDefault()).
+            if (request.hasSelection) {
+              pending = null;
+              return;
+            }
+            if (request.trigger !== 'contextmenu') {
+              pending = null;
+              return;
+            }
+            const handoff = pending;
+            pending = null;
+            if (handoff === null) return;
+            const event = handoff.event;
+            if (event.defaultPrevented) return;
+            const token = resolveToken(event, handoff.source);
+            if (token === null) return;
+            if (!request.sessionId) return;
+            const menus = scope.contextMenus;
+            if (!menus || typeof menus.open !== 'function' || !menus.registeredKinds) return;
+            // Never open an empty menu: both kinds come from Host-registered providers.
+            const kinds = menus.registeredKinds.getSnapshot();
+            if (!Array.isArray(kinds)) return;
+            const directory = /[/\\]$/u.test(token);
+            const kind = directory && kinds.includes('directory') ? 'directory' : 'file';
+            if (!kinds.includes(kind)) return;
+            request.preventDefault();
+            menus.open({ kind, value: { sessionId: request.sessionId, path: token } }, { x: event.clientX, y: event.clientY });
+          },
+        }), 'session-groups: chat path menu');
+
+        scope.effect(() => {
+          const onContextMenu = (event) => {
+            const el = event.target instanceof Element ? event.target : null;
+            const source = el === null ? null : el.closest('[data-text-interaction-source]');
+            if (source === null || event.defaultPrevented || (event.clientX === 0 && event.clientY === 0)) {
+              pending = null;
+              return;
+            }
+            pending = { event, source };
+            // The consumer runs synchronously during this event; drop stale gestures.
+            setTimeout(() => {
+              if (pending !== null && pending.event === event) pending = null;
+            }, 0);
+          };
+          document.addEventListener('contextmenu', onContextMenu, true);
+          return () => {
+            document.removeEventListener('contextmenu', onContextMenu, true);
+            pending = null;
+          };
+        }, 'session-groups: chat path gesture');
+      });
 
     }
 

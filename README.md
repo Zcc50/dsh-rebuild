@@ -4,7 +4,7 @@ DSH（DeepSeek Harness）的自用整合包仓库，四部分：
 
 | 目录 | 内容 | 安装 |
 |---|---|---|
-| 根目录 | 工作区美化插件 `dsh-workspace-frontend` 0.1.1 | 插件市场搜「DSH 工作区前端重建」，或 `dsh plugin --profile <profile> add Zcc50/dsh-rebuild` |
+| 根目录 | 工作区美化插件 `dsh-workspace-frontend` 0.1.3 | 插件市场搜「DSH 工作区前端重建」，或 `dsh plugin --profile <profile> add Zcc50/dsh-rebuild` |
 | `pack/` | 整套环境安装器 **V4.1（2026-11-07）**：工作区美化 / 任务列表 0.3.19 / 待办列表 1.4.0 / 上下文压缩 / 视觉 / 心理档案框架 / 编码 / LSP / 皮肤 / 白皮书 | 解压后按 `pack/安装指令.md`，或 `pack/install.ps1` |
 | `task-list/` | 任务列表插件 `dsh-task-list` **0.3.19** | 市场搜「DSH 任务列表」，或 `dsh plugin --profile <profile> add Zcc50/dsh-rebuild#task-list` |
 | `todo-list/` | 待办列表插件 `dsh-todo-list` **1.4.0** | 市场搜「DSH 待办列表」，或 `dsh plugin --profile <profile> add Zcc50/dsh-rebuild#todo-list` |
@@ -15,7 +15,10 @@ DSH（DeepSeek Harness）的自用整合包仓库，四部分：
 
 ## 版本
 
-- 2026-11-07：V4.1——HANDOFF 按白皮书 §2.6 压缩（正文 ≤250 行，历史进 `-归档-2026-11-07.md`），白皮书附件同步。`n- 2026-11-07：V4——新增上下文压缩/卸载插件 `dsh-context-offload`（压力 ≥35% 卸载大工具结果）；工作区美化、任务列表 0.3.19、待办列表 1.4.0、编码 1.5.3、LSP 0.5.19、皮肤 0.19.9、桌宠 0.4.4 同步。
+- 2026-11-22：0.1.3——会话正文路径支持右键打开共享文件菜单（含「在应用中打开」）。
+- 2026-11-21：0.1.2——适配 DeepSeek 桌面版 V0.2.2-rc.5（内置 DSH 0.2.2-rc.5）：修正 Client 模块注册 id（rc.5 起必须等于包名，否则报 duplicate factory registration 且面板不显示）；新增 `pnpm check:client-ids` 回归检查。
+- 2026-11-07：V4.1——HANDOFF 按白皮书 §2.6 压缩（正文 ≤250 行，历史进 `-归档-2026-11-07.md`），白皮书附件同步。
+- 2026-11-07：V4——新增上下文压缩/卸载插件 `dsh-context-offload`（压力 ≥35% 卸载大工具结果）；工作区美化、任务列表 0.3.19、待办列表 1.4.0、编码 1.5.3、LSP 0.5.19、皮肤 0.19.9、桌宠 0.4.4 同步。
 - 2026-11-05：V3.2——任务列表 0.3.19 / 待办列表 1.4.0 / 白皮书附件。
 - 2026-11-05：V3.1——任务列表 0.3.15。
 - 2026-11-05：V3——任务列表 0.3.14、待办列表 0.1.0、心理档案框架、非自研改链接。

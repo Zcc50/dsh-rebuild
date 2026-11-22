@@ -1,6 +1,6 @@
 # DSH 重修整合包 V4.1 · 安装说明
 
-> 版本：2026-11-07（V4.1）| 适用：Windows + DSH Desktop / `dsh web`（本包在 DSH 0.2.1-rc.3 上验证）
+> 版本：2026-11-07（V4.1）| 适用：Windows + DSH Desktop / `dsh web`（本包在 DeepSeek 桌面版 V0.2.2-rc.5（内置 DSH 0.2.2-rc.5）上验证）
 > 一句话：工作区美化、任务列表 0.3.19、待办列表 1.4.0、上下文压缩/卸载、心理档案框架、视觉、编码、LSP/审查、皮肤——**每一项都先问你**，你确认或修改后才装；非自研插件只给包名与链接，装的时候联网下载。V4.1 起 HANDOFF 按白皮书 §2.6 压缩：正文只留核心，历史进 `-归档-2026-11-07.md`。
 
 ## 一、包含什么
@@ -132,6 +132,7 @@ DSH_VISION_API_KEY=<你的 Key>
 | 安装报「未找到 DSH runtime 的 node/pnpm」 | DSH 安装不完整；重装 DSH |
 | `pnpm add` 失败 / 装外置插件报错 | 需要联网：检查网络 / 代理 / registry 后重跑 |
 | 装了没有任何变化 | 是否完全退出并重启了 DSH（只刷新页面不够） |
+| 工作区美化面板不出现 | 确认插件 client.js 的 `__ModuleLoader__.load({ id })` 等于其 package.json 的 name；rc.5 起 id 不一致会报 duplicate factory registration，回退重放后整包不加载 |
 | 任务面板不出现 | 检查 `<profile>\package.json` 的 `dsh.profile.bundles` 是否含 `@local/dsh-task-list` |
 | 待办列表不出现 | 检查 bundles 是否含 `@local/dsh-todo-list`；右侧栏是否被隐藏 |
 | 心理档案没出现 | 看安装输出里的 `心理档案: <路径>`；目标目录已存在时会跳过 |

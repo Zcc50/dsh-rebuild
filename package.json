@@ -1,9 +1,12 @@
 {
   "name": "dsh-workspace-frontend",
-  "version": "0.1.1",
+  "version": "0.1.3",
   "type": "module",
   "description": "DSH 重修整合包：根目录是工作区美化插件本体，pack/ 子目录是整套环境安装器（任务列表 / 编码 / LSP / 视觉 / 白皮书）。",
   "license": "MIT",
+  "scripts": {
+    "check:client-ids": "node scripts/check-client-ids.mjs"
+  },
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",
@@ -31,7 +34,9 @@
       "immediately": true,
       "inject": [
         "@deepseek-ai/dsh-client-ui-sidebar",
-        "@deepseek-ai/dsh-client-ui-workspace"
+        "@deepseek-ai/dsh-client-ui-workspace",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-context-menu"
       ]
     }
   }
